@@ -17,7 +17,7 @@
 ## 📥 Installation
 
 ### OpenDeck (Recommended)
-1. Download the `minginfo-v1.1.zip` from the [Releases](https://github.com/DEIN_USERNAME/REPO_NAME/releases) page.
+1. Download the `minginfo-v1.1.zip` from the [Releases](https://github.com/kahikara/minginfo/releases) page.
 2. In **OpenDeck**, click **"Import Plugin"** and select the ZIP file.
 
 ### Permissions
