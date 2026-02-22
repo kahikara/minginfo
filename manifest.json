@@ -1,0 +1,35 @@
+{
+  "Actions": [
+    { "Icon": "icon_cpu", "Name": "CPU", "UUID": "com.minginfo.cpu", "States": [{"Image": "actionDefaultImage"}] },
+    { "Icon": "icon_gpu", "Name": "GPU", "UUID": "com.minginfo.gpu", "States": [{"Image": "actionDefaultImage"}] },
+    { "Icon": "icon_ram", "Name": "RAM", "UUID": "com.minginfo.ram", "States": [{"Image": "actionDefaultImage"}] },
+    { "Icon": "icon_vram", "Name": "VRAM", "UUID": "com.minginfo.vram", "States": [{"Image": "actionDefaultImage"}] },
+    { "Icon": "icon_net", "Name": "Network", "UUID": "com.minginfo.net", "States": [{"Image": "actionDefaultImage"}] },
+    { "Icon": "icon_disk", "Name": "Disk", "UUID": "com.minginfo.disk", "States": [{"Image": "actionDefaultImage"}] },
+    { "Icon": "icon_ping", "Name": "Ping", "UUID": "com.minginfo.ping", "States": [{"Image": "actionDefaultImage"}] },
+    { "Icon": "icon_top", "Name": "Top Proc", "UUID": "com.minginfo.top", "States": [{"Image": "actionDefaultImage"}] },
+    { "Icon": "icon_time", "Name": "Time/Date", "UUID": "com.minginfo.time", "States": [{"Image": "actionDefaultImage"}] },
+    { 
+      "Icon": "icon_audio", "Name": "Audio Volume", "UUID": "com.minginfo.audio", 
+      "Controllers": [ "Keypad", "Encoder" ], "States": [ { "Image": "actionDefaultImage" } ]
+    },
+    { 
+      "Icon": "icon_timer", "Name": "Alarm Timer", "UUID": "com.minginfo.timer", 
+      "Controllers": [ "Encoder" ], "States": [ { "Image": "actionDefaultImage" } ]
+    },
+    { 
+      "Icon": "icon_bright", "Name": "Monitor Brightness", "UUID": "com.minginfo.monbright", 
+      "Controllers": [ "Encoder" ], "States": [ { "Image": "actionDefaultImage" } ]
+    }
+  ],
+  "Author": "Ming",
+  "Category": "MingInfo",
+  "CategoryIcon": "categoryIcon",
+  "CodePath": "start.sh",
+  "Description": "Ultimate Linux SysInfo Dashboard",
+  "Name": "MingInfo",
+  "Icon": "pluginIcon",
+  "OS": [ { "Platform": "linux", "MinimumVersion": "1.0" } ],
+  "Software": { "MinimumVersion": "5.0" },
+  "Version": "1.1"
+}
