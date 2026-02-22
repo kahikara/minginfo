@@ -1,3 +1,5 @@
+![MingInfo Dashboard](assets/screenshot.png)
+
 # MingInfo - Linux Stream Deck Dashboard
 
 **MingInfo** is a high-performance system dashboard for Linux, optimized for real-time monitoring and Stream Deck + (Encoder) support.
@@ -24,5 +26,3 @@
 For monitor brightness control (DDC/CI) to work:
 ```bash
 sudo usermod -aG i2c $USER
-
-![MingInfo Dashboard](assets/screenshot.png)
