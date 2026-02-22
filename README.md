@@ -24,3 +24,4 @@
 For monitor brightness control (DDC/CI) to work:
 ```bash
 sudo usermod -aG i2c $USER
+<img width="523" height="396" alt="image" src="https://github.com/user-attachments/assets/2eac7aab-e560-4976-948f-90986eb12fd5" />
