@@ -1,5 +1,3 @@
-![MingInfo Dashboard](assets/screenshot.png)
-
 # MingInfo - Linux Stream Deck Dashboard (OpenDeck Optimized)
 
 **MingInfo** is a high-performance system monitoring plugin built specifically for Linux. While it works with the official client, it is **fully optimized for OpenDeck** to provide a seamless, native experience.
