@@ -1,97 +1,97 @@
 {
   "Actions": [
     {
-      "Icon": "icon_cpu",
+      "Icon": "icons/icon_cpu.svg",
       "Name": "CPU",
       "UUID": "com.kahikara.opendeck-redline.cpu",
       "States": [
         {
-          "Image": "actionDefaultImage"
+          "Image": "icons/actionDefaultImage.png"
         }
       ]
     },
     {
-      "Icon": "icon_gpu",
+      "Icon": "icons/icon_gpu.svg",
       "Name": "GPU",
       "UUID": "com.kahikara.opendeck-redline.gpu",
       "States": [
         {
-          "Image": "actionDefaultImage"
+          "Image": "icons/actionDefaultImage.png"
         }
       ]
     },
     {
-      "Icon": "icon_ram",
+      "Icon": "icons/icon_ram.svg",
       "Name": "RAM",
       "UUID": "com.kahikara.opendeck-redline.ram",
       "States": [
         {
-          "Image": "actionDefaultImage"
+          "Image": "icons/actionDefaultImage.png"
         }
       ]
     },
     {
-      "Icon": "icon_vram",
+      "Icon": "icons/icon_vram.svg",
       "Name": "VRAM",
       "UUID": "com.kahikara.opendeck-redline.vram",
       "States": [
         {
-          "Image": "actionDefaultImage"
+          "Image": "icons/actionDefaultImage.png"
         }
       ]
     },
     {
-      "Icon": "icon_net",
+      "Icon": "icons/icon_net.svg",
       "Name": "Network",
       "UUID": "com.kahikara.opendeck-redline.net",
       "States": [
         {
-          "Image": "actionDefaultImage"
+          "Image": "icons/actionDefaultImage.png"
         }
       ]
     },
     {
-      "Icon": "icon_disk",
+      "Icon": "icons/icon_disk.svg",
       "Name": "Disk",
       "UUID": "com.kahikara.opendeck-redline.disk",
       "States": [
         {
-          "Image": "actionDefaultImage"
+          "Image": "icons/actionDefaultImage.png"
         }
       ]
     },
     {
-      "Icon": "icon_ping",
+      "Icon": "icons/icon_ping.svg",
       "Name": "Ping",
       "UUID": "com.kahikara.opendeck-redline.ping",
       "States": [
         {
-          "Image": "actionDefaultImage"
+          "Image": "icons/actionDefaultImage.png"
         }
       ]
     },
     {
-      "Icon": "icon_top",
+      "Icon": "icons/icon_top.svg",
       "Name": "Top Proc",
       "UUID": "com.kahikara.opendeck-redline.top",
       "States": [
         {
-          "Image": "actionDefaultImage"
+          "Image": "icons/actionDefaultImage.png"
         }
       ]
     },
     {
-      "Icon": "icon_time",
+      "Icon": "icons/icon_time.svg",
       "Name": "Time/Date",
       "UUID": "com.kahikara.opendeck-redline.time",
       "States": [
         {
-          "Image": "actionDefaultImage"
+          "Image": "icons/actionDefaultImage.png"
         }
       ]
     },
     {
-      "Icon": "icon_audio",
+      "Icon": "icons/icon_audio.svg",
       "Name": "Audio Volume",
       "UUID": "com.kahikara.opendeck-redline.audio",
       "Controllers": [
@@ -100,12 +100,12 @@
       ],
       "States": [
         {
-          "Image": "actionDefaultImage"
+          "Image": "icons/actionDefaultImage.png"
         }
       ]
     },
     {
-      "Icon": "icon_timer",
+      "Icon": "icons/icon_timer.svg",
       "Name": "Alarm Timer",
       "UUID": "com.kahikara.opendeck-redline.timer",
       "Controllers": [
@@ -113,12 +113,12 @@
       ],
       "States": [
         {
-          "Image": "actionDefaultImage"
+          "Image": "icons/actionDefaultImage.png"
         }
       ]
     },
     {
-      "Icon": "icon_bright",
+      "Icon": "icons/icon_bright.svg",
       "Name": "Monitor Brightness",
       "UUID": "com.kahikara.opendeck-redline.monbright",
       "Controllers": [
@@ -126,18 +126,18 @@
       ],
       "States": [
         {
-          "Image": "actionDefaultImage"
+          "Image": "icons/actionDefaultImage.png"
         }
       ]
     }
   ],
   "Author": "Ming",
   "Category": "Redline",
-  "CategoryIcon": "categoryIcon",
+  "CategoryIcon": "icons/categoryIcon.svg",
   "CodePath": "start.sh",
   "Description": "An OpenDeck plugin for AMD focused Linux monitoring",
   "Name": "Redline Monitor",
-  "Icon": "pluginIcon",
+  "Icon": "icons/pluginIcon.svg",
   "OS": [
     {
       "Platform": "linux",
