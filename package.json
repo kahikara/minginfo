@@ -4,8 +4,10 @@
   "description": "An OpenDeck plugin for AMD focused Linux monitoring",
   "main": "index.js",
   "scripts": {
+    "clean": "rm -rf dist",
     "check": "node --check index.js",
-    "build": "./build-plugin.sh"
+    "build": "./build-plugin.sh",
+    "rebuild": "rm -rf dist && ./build-plugin.sh"
   },
   "keywords": [
     "opendeck",
