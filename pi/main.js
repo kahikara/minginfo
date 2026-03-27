@@ -13,37 +13,180 @@
   const saveButton = $('saveButton');
   const statusText = $('statusText');
 
+  let websocket = null;
+  let uuid = null;
+  let actionInfo = null;
+
+  const DEFAULT_SETTINGS = Object.freeze({
+    pingHost: '1.1.1.1',
+    networkInterface: '',
+    volumeStep: 2,
+    brightnessStep: 5,
+    timerStep: 1,
+    topMode: 'grouped',
+  });
+
   function setStatus(text) {
     statusText.textContent = text;
   }
 
-  function getCurrentSettings() {
-    return {
-      pingHost: fields.pingHost.value.trim() || '1.1.1.1',
-      networkInterface: fields.networkInterface.value.trim(),
-      volumeStep: Number.parseInt(fields.volumeStep.value, 10) || 2,
-      brightnessStep: Number.parseInt(fields.brightnessStep.value, 10) || 5,
-      timerStep: Number.parseInt(fields.timerStep.value, 10) || 1,
-      topMode: fields.topMode.value || 'grouped',
+  function normalizeSettings(settings = {}) {
+    const normalized = {
+      ...DEFAULT_SETTINGS,
     };
+
+    if (typeof settings.pingHost === 'string' && settings.pingHost.trim()) {
+      normalized.pingHost = settings.pingHost.trim();
+    }
+
+    if (typeof settings.networkInterface === 'string') {
+      normalized.networkInterface = settings.networkInterface.trim();
+    }
+
+    if (settings.volumeStep !== undefined) {
+      normalized.volumeStep = Math.max(1, Math.min(20, Number.parseInt(settings.volumeStep, 10) || DEFAULT_SETTINGS.volumeStep));
+    }
+
+    if (settings.brightnessStep !== undefined) {
+      normalized.brightnessStep = Math.max(1, Math.min(25, Number.parseInt(settings.brightnessStep, 10) || DEFAULT_SETTINGS.brightnessStep));
+    }
+
+    if (settings.timerStep !== undefined) {
+      normalized.timerStep = Math.max(1, Math.min(60, Number.parseInt(settings.timerStep, 10) || DEFAULT_SETTINGS.timerStep));
+    }
+
+    if (settings.topMode === 'raw' || settings.topMode === 'grouped') {
+      normalized.topMode = settings.topMode;
+    }
+
+    return normalized;
   }
 
-  function loadDefaults() {
-    const defaults = getCurrentSettings();
-    fields.pingHost.value = defaults.pingHost;
-    fields.networkInterface.value = defaults.networkInterface;
-    fields.volumeStep.value = String(defaults.volumeStep);
-    fields.brightnessStep.value = String(defaults.brightnessStep);
-    fields.timerStep.value = String(defaults.timerStep);
-    fields.topMode.value = defaults.topMode;
+  function applySettings(settings = {}) {
+    const normalized = normalizeSettings(settings);
+
+    fields.pingHost.value = normalized.pingHost;
+    fields.networkInterface.value = normalized.networkInterface;
+    fields.volumeStep.value = String(normalized.volumeStep);
+    fields.brightnessStep.value = String(normalized.brightnessStep);
+    fields.timerStep.value = String(normalized.timerStep);
+    fields.topMode.value = normalized.topMode;
   }
 
-  saveButton.addEventListener('click', () => {
-    const settings = getCurrentSettings();
-    console.log('[Redline PI] Save clicked', settings);
-    setStatus('Save clicked. Settings wiring comes next.');
-  });
+  function collectSettings() {
+    return normalizeSettings({
+      pingHost: fields.pingHost.value,
+      networkInterface: fields.networkInterface.value,
+      volumeStep: fields.volumeStep.value,
+      brightnessStep: fields.brightnessStep.value,
+      timerStep: fields.timerStep.value,
+      topMode: fields.topMode.value,
+    });
+  }
 
-  loadDefaults();
-  setStatus('Inspector ready');
+  function send(payload) {
+    if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    websocket.send(JSON.stringify(payload));
+  }
+
+  function saveSettings() {
+    const settings = collectSettings();
+
+    if (!uuid) {
+      console.log('[Redline PI] local save', settings);
+      setStatus('Local preview only');
+      return;
+    }
+
+    send({
+      event: 'setSettings',
+      context: uuid,
+      payload: settings,
+    });
+
+    if (actionInfo?.action) {
+      send({
+        event: 'sendToPlugin',
+        action: actionInfo.action,
+        context: uuid,
+        payload: {
+          type: 'saveSettings',
+          settings,
+        },
+      });
+    }
+
+    setStatus('Settings saved');
+  }
+
+  function requestSettings() {
+    if (!uuid) return;
+
+    send({
+      event: 'getSettings',
+      context: uuid,
+    });
+  }
+
+  window.connectElgatoStreamDeckSocket = function connectElgatoStreamDeckSocket(inPort, inUUID, inRegisterEvent, inInfo, inActionInfo) {
+    uuid = inUUID;
+
+    try {
+      actionInfo = inActionInfo ? JSON.parse(inActionInfo) : null;
+    } catch (error) {
+      console.error('[Redline PI] Failed to parse action info', error);
+      actionInfo = null;
+    }
+
+    applySettings(actionInfo?.payload?.settings || {});
+    websocket = new WebSocket(`ws://127.0.0.1:${inPort}`);
+
+    websocket.addEventListener('open', () => {
+      send({
+        event: inRegisterEvent,
+        uuid: inUUID,
+      });
+
+      requestSettings();
+      setStatus('Connected');
+    });
+
+    websocket.addEventListener('message', (event) => {
+      let message = null;
+
+      try {
+        message = JSON.parse(event.data);
+      } catch (error) {
+        console.error('[Redline PI] Failed to parse message', error);
+        return;
+      }
+
+      if (message.event === 'didReceiveSettings' && message.context === uuid) {
+        applySettings(message.payload?.settings || {});
+        setStatus('Settings loaded');
+      }
+
+      if (message.event === 'sendToPropertyInspector' && message.context === uuid) {
+        if (message.payload?.settings) {
+          applySettings(message.payload.settings);
+          setStatus('Settings synced');
+        }
+      }
+    });
+
+    websocket.addEventListener('close', () => {
+      setStatus('Disconnected');
+    });
+
+    websocket.addEventListener('error', () => {
+      setStatus('Connection error');
+    });
+  };
+
+  saveButton.addEventListener('click', saveSettings);
+  applySettings({});
+  setStatus('Waiting for OpenDeck');
 })();

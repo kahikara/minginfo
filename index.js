@@ -37,6 +37,15 @@ const ACTIONS = Object.freeze({
   monbright: `${PLUGIN_PREFIX}.monbright`,
 });
 
+const DEFAULT_SETTINGS = Object.freeze({
+  pingHost: '1.1.1.1',
+  networkInterface: '',
+  volumeStep: 2,
+  brightnessStep: 5,
+  timerStep: 1,
+  topMode: 'grouped',
+});
+
 const POLL_INTERVAL_MS = 2000;
 const TOP_REFRESH_MS = 4000;
 const NETWORK_CACHE_MS = 10000;
@@ -52,6 +61,8 @@ const activeContexts = Object.create(null);
 const activeTimers = Object.create(null);
 const lastSentImages = Object.create(null);
 const transientImageTimers = Object.create(null);
+const contextSettings = Object.create(null);
+const pingStates = Object.create(null);
 
 let pollingInterval = null;
 let timerInterval = null;
@@ -62,10 +73,6 @@ let shuttingDown = false;
 let monitorBrightness = 50;
 let monitorBrightnessAvailable = false;
 let lastBrightnessSync = 0;
-
-let lastPing = 0;
-let failedPings = 0;
-let lastPingTime = 0;
 
 let amdgpuDirCache = null;
 let cpuPowerFileCache = null;
@@ -107,6 +114,62 @@ function warnOnce(key, ...parts) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function shellEscape(value) {
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
+}
+
+function normalizeSettings(settings = {}) {
+  const normalized = {
+    ...DEFAULT_SETTINGS,
+  };
+
+  if (typeof settings.pingHost === 'string' && settings.pingHost.trim()) {
+    normalized.pingHost = settings.pingHost.trim();
+  }
+
+  if (typeof settings.networkInterface === 'string') {
+    normalized.networkInterface = settings.networkInterface.trim();
+  }
+
+  if (settings.volumeStep !== undefined) {
+    normalized.volumeStep = clamp(Number.parseInt(settings.volumeStep, 10) || DEFAULT_SETTINGS.volumeStep, 1, 20);
+  }
+
+  if (settings.brightnessStep !== undefined) {
+    normalized.brightnessStep = clamp(Number.parseInt(settings.brightnessStep, 10) || DEFAULT_SETTINGS.brightnessStep, 1, 25);
+  }
+
+  if (settings.timerStep !== undefined) {
+    normalized.timerStep = clamp(Number.parseInt(settings.timerStep, 10) || DEFAULT_SETTINGS.timerStep, 1, 60);
+  }
+
+  if (settings.topMode === 'raw' || settings.topMode === 'grouped') {
+    normalized.topMode = settings.topMode;
+  }
+
+  return normalized;
+}
+
+function storeSettingsForContext(context, settings) {
+  contextSettings[context] = normalizeSettings(settings);
+}
+
+function getSettingsForContext(context) {
+  return normalizeSettings(contextSettings[context] || {});
+}
+
+function getPingState(context) {
+  if (!pingStates[context]) {
+    pingStates[context] = {
+      lastPing: 0,
+      failedPings: 0,
+      lastPingTime: 0,
+    };
+  }
+
+  return pingStates[context];
 }
 
 function escapeXml(value = '') {
@@ -252,9 +315,9 @@ function isExcludedTopProcess(name) {
   return blocked.some((entry) => lower === entry || lower.includes(entry));
 }
 
-function getTopProcessSummary(procData) {
+function getTopProcessSummary(procData, mode = 'grouped') {
   const list = Array.isArray(procData?.list) ? procData.list : [];
-  const grouped = new Map();
+  const filtered = [];
 
   for (const process of list) {
     const rawName = String(process.name || '').trim();
@@ -264,11 +327,30 @@ function getTopProcessSummary(procData) {
     if (!Number.isFinite(cpu) || cpu <= 0.2) continue;
     if (isExcludedTopProcess(rawName)) continue;
 
-    const label = getShortProcName(rawName);
-    grouped.set(label, (grouped.get(label) || 0) + cpu);
+    filtered.push({
+      rawName,
+      cpu,
+      label: getShortProcName(rawName),
+    });
   }
 
-  if (grouped.size === 0) return null;
+  if (filtered.length === 0) return null;
+
+  if (mode === 'raw') {
+    const best = filtered.sort((a, b) => b.cpu - a.cpu)[0];
+    if (!best || best.cpu < 1) return null;
+
+    return {
+      name: best.label,
+      cpu: clamp(Math.round(best.cpu > 100 ? best.cpu / coreCount : best.cpu), 0, 100),
+    };
+  }
+
+  const grouped = new Map();
+
+  for (const process of filtered) {
+    grouped.set(process.label, (grouped.get(process.label) || 0) + process.cpu);
+  }
 
   let bestName = '';
   let bestCpu = 0;
@@ -282,15 +364,9 @@ function getTopProcessSummary(procData) {
 
   if (bestCpu < 1) return null;
 
-  const normalizedCpu = clamp(
-    Math.round(bestCpu > 100 ? bestCpu / coreCount : bestCpu),
-    0,
-    100
-  );
-
   return {
     name: bestName,
-    cpu: normalizedCpu,
+    cpu: clamp(Math.round(bestCpu > 100 ? bestCpu / coreCount : bestCpu), 0, 100),
   };
 }
 
@@ -530,10 +606,19 @@ async function detectActiveInterface(force = false) {
   }
 }
 
-async function getNetworkStats() {
-  let iface = await detectActiveInterface();
+async function getNetworkStats(overrideInterface = '') {
+  let iface = String(overrideInterface || '').trim();
 
   try {
+    if (iface) {
+      const data = await si.networkStats(iface);
+      if (Array.isArray(data) && data.length > 0) {
+        return { available: true, iface, data };
+      }
+    }
+
+    iface = await detectActiveInterface();
+
     if (iface) {
       let data = await si.networkStats(iface);
 
@@ -608,26 +693,28 @@ async function setMonitorBrightness(value) {
   return true;
 }
 
-async function getPing(force = false) {
-  const result = await runCommand('ping -c 1 -W 2 1.1.1.1', 4000);
+async function getPing(context, host, force = false) {
+  const state = getPingState(context);
+  const target = String(host || DEFAULT_SETTINGS.pingHost).trim() || DEFAULT_SETTINGS.pingHost;
+  const result = await runCommand(`ping -c 1 -W 2 ${shellEscape(target)}`, 4000);
 
   if (result.error || !result.stdout) {
-    failedPings += 1;
-    if (failedPings > 3 || force) lastPing = 0;
-    return lastPing;
+    state.failedPings += 1;
+    if (state.failedPings > 3 || force) state.lastPing = 0;
+    return state.lastPing;
   }
 
-  failedPings = 0;
+  state.failedPings = 0;
   const match = result.stdout.match(/time=([0-9.]+)/);
 
   if (match) {
     const milliseconds = Number.parseFloat(match[1]);
     if (Number.isFinite(milliseconds)) {
-      lastPing = milliseconds > 0 && milliseconds < 1 ? 1 : Math.round(milliseconds);
+      state.lastPing = milliseconds > 0 && milliseconds < 1 ? 1 : Math.round(milliseconds);
     }
   }
 
-  return lastPing;
+  return state.lastPing;
 }
 
 async function getAudio() {
@@ -651,10 +738,11 @@ async function getAudio() {
   };
 }
 
-async function adjustVolume(ticks) {
+async function adjustVolume(ticks, stepPercent = 2) {
   if (!(await commandExists('wpctl'))) return false;
+  const step = clamp(Number.parseInt(stepPercent, 10) || 2, 1, 20);
   await runCommand('wpctl set-mute @DEFAULT_AUDIO_SINK@ 0', 1500);
-  await runCommand(`wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ ${ticks > 0 ? '2%+' : '2%-'}`, 1500);
+  await runCommand(`wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ ${ticks > 0 ? `${step}%+` : `${step}%-`}`, 1500);
   return true;
 }
 
@@ -712,10 +800,15 @@ async function updateAudioImmediately(context) {
 }
 
 async function updatePingImmediately(context) {
-  sendUpdateIfChanged(context, generateButtonImage('⚡', 'PING', '... ms', '1.1.1.1', 0));
-  lastPingTime = Date.now();
-  await getPing(true);
-  sendUpdateIfChanged(context, generateButtonImage('⚡', 'PING', `${lastPing} ms`, '1.1.1.1', Math.min(100, lastPing)));
+  const settings = getSettingsForContext(context);
+  const target = settings.pingHost || DEFAULT_SETTINGS.pingHost;
+  const targetLabel = target.length > 12 ? `${target.slice(0, 11)}…` : target;
+  const state = getPingState(context);
+
+  sendUpdateIfChanged(context, generateButtonImage('⚡', 'PING', '... ms', targetLabel, 0));
+  state.lastPingTime = Date.now();
+  await getPing(context, target, true);
+  sendUpdateIfChanged(context, generateButtonImage('⚡', 'PING', `${state.lastPing} ms`, targetLabel, Math.min(100, state.lastPing)));
 }
 
 async function openActionTool(action, context) {
@@ -819,6 +912,8 @@ ws.on('message', async (data) => {
         isEncoder: message.payload?.controller === 'Encoder',
       };
 
+      storeSettingsForContext(context, message.payload?.settings || {});
+
       if (action === ACTIONS.timer && !activeTimers[context]) {
         activeTimers[context] = { total: 0, remaining: 0, state: 'stopped' };
       }
@@ -837,10 +932,35 @@ ws.on('message', async (data) => {
       return;
     }
 
+    if (event === 'didReceiveSettings') {
+      storeSettingsForContext(context, message.payload?.settings || {});
+      delete lastSentImages[context];
+
+      if (action === ACTIONS.audio) {
+        await updateAudioImmediately(context);
+      } else if (action === ACTIONS.monbright) {
+        updateBrightnessUI(context);
+      } else if (action === ACTIONS.ping) {
+        await updatePingImmediately(context);
+      }
+
+      return;
+    }
+
+    if (event === 'sendToPlugin') {
+      if (message.payload?.type === 'saveSettings') {
+        storeSettingsForContext(context, message.payload?.settings || {});
+        delete lastSentImages[context];
+      }
+      return;
+    }
+
     if (event === 'willDisappear') {
       delete activeContexts[context];
       delete activeTimers[context];
       delete lastSentImages[context];
+      delete contextSettings[context];
+      delete pingStates[context];
       clearTransientTimer(context);
 
       if (Object.keys(activeContexts).length === 0) {
@@ -852,23 +972,24 @@ ws.on('message', async (data) => {
 
     if (event === 'dialRotate') {
       const ticks = message.payload?.ticks || 0;
+      const settings = getSettingsForContext(context);
 
       if (action === ACTIONS.audio) {
-        await adjustVolume(ticks);
+        await adjustVolume(ticks, settings.volumeStep);
         await updateAudioImmediately(context);
       }
 
       if (action === ACTIONS.timer) {
         const timer = activeTimers[context];
         if (timer && (timer.state === 'stopped' || timer.state === 'paused')) {
-          timer.total = Math.max(0, timer.total + (ticks * 60));
+          timer.total = Math.max(0, timer.total + (ticks * settings.timerStep * 60));
           timer.remaining = timer.total;
           updateTimerUI(context);
         }
       }
 
       if (action === ACTIONS.monbright) {
-        await setMonitorBrightness(monitorBrightness + (ticks * 5));
+        await setMonitorBrightness(monitorBrightness + (ticks * settings.brightnessStep));
         updateBrightnessUI(context);
       }
 
@@ -967,12 +1088,10 @@ function startPolling() {
       let memData = {};
       let diskData = [];
       let audioData = { available: false, vol: 0, muted: false };
-      let netResult = { available: false, iface: null, data: [] };
       let procData = procCache.data;
 
       const needsCpu = actionsList.includes(ACTIONS.cpu);
       const needsRam = actionsList.includes(ACTIONS.ram);
-      const needsNet = actionsList.includes(ACTIONS.net);
       const needsDisk = actionsList.includes(ACTIONS.disk);
       const needsTop = actionsList.includes(ACTIONS.top);
       const needsAudio = actionsList.includes(ACTIONS.audio);
@@ -990,23 +1109,12 @@ function startPolling() {
         promises.push(si.mem().then((data) => { memData = data; }).catch((error) => warnOnce('mem-failed', `memory read failed: ${error.message}`)));
       }
 
-      if (needsNet) {
-        promises.push(getNetworkStats().then((data) => { netResult = data; }));
-      }
-
       if (needsDisk) {
         promises.push(si.fsSize().then((data) => { diskData = data; }).catch((error) => warnOnce('disk-failed', `disk read failed: ${error.message}`)));
       }
 
       if (needsAudio) {
         promises.push(getAudio().then((data) => { audioData = data; }));
-      }
-
-      if (actionsList.includes(ACTIONS.ping)) {
-        if (Date.now() - lastPingTime >= 5000) {
-          lastPingTime = Date.now();
-          promises.push(getPing());
-        }
       }
 
       if (needsTop) {
@@ -1035,6 +1143,7 @@ function startPolling() {
 
       for (const context of Object.keys(activeContexts)) {
         const { action } = activeContexts[context];
+        const settings = getSettingsForContext(context);
 
         if (transientImageTimers[context]) {
           continue;
@@ -1099,6 +1208,7 @@ function startPolling() {
             image = generateButtonImage('🎞️', 'VRAM', `${Math.round(percent)}%`, `${usedGB} / ${totalGB} GB`, percent);
           }
         } else if (action === ACTIONS.net) {
+          const netResult = await getNetworkStats(settings.networkInterface);
           if (!netResult.available || netResult.data.length === 0) {
             image = unavailableButton('🌐', 'NET', 'NO NET');
           } else {
@@ -1132,9 +1242,18 @@ function startPolling() {
             image = generateButtonImage('🖴', 'DISKS', `${Math.round(percent)}%`, `${Math.round(freeGB)} GB free`, percent);
           }
         } else if (action === ACTIONS.ping) {
-          image = generateButtonImage('⚡', 'PING', `${lastPing} ms`, '1.1.1.1', Math.min(100, lastPing));
+          const state = getPingState(context);
+          const target = settings.pingHost || DEFAULT_SETTINGS.pingHost;
+          const targetLabel = target.length > 12 ? `${target.slice(0, 11)}…` : target;
+
+          if (Date.now() - state.lastPingTime >= 5000) {
+            state.lastPingTime = Date.now();
+            await getPing(context, target, false);
+          }
+
+          image = generateButtonImage('⚡', 'PING', `${state.lastPing} ms`, targetLabel, Math.min(100, state.lastPing));
         } else if (action === ACTIONS.top) {
-          const topProcess = getTopProcessSummary(procData);
+          const topProcess = getTopProcessSummary(procData, settings.topMode);
 
           if (topProcess) {
             image = generateButtonImage('🔥', 'TOP', topProcess.name, `${topProcess.cpu}% CPU`, topProcess.cpu);
