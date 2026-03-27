@@ -147,7 +147,7 @@ function sendUpdateIfChanged(context, imgData) {
 }
 
 function updateDialUI(context, action) {
-    if (action === 'com.minginfo.monbright') {
+    if (action === 'com.kahikara.opendeck-redline.monbright') {
         sendUpdateIfChanged(context, generateDialImage('☀️', 'MONITOR', `${monitorBrightness}%`, monitorBrightness, "rgb(250, 204, 21)"));
     }
 }
@@ -173,9 +173,9 @@ ws.on('message', (data) => {
 
     if (event === 'willAppear') {
         activeContexts[context] = { action: action, isEncoder: msg.payload?.controller === 'Encoder' };
-        if (action === 'com.minginfo.timer' && !activeTimers[context]) activeTimers[context] = { total: 0, remaining: 0, state: 'stopped' };
-        if (action === 'com.minginfo.monbright') updateDialUI(context, action);
-        if (action === 'com.minginfo.audio') updateAudioImmediately(context);
+        if (action === 'com.kahikara.opendeck-redline.timer' && !activeTimers[context]) activeTimers[context] = { total: 0, remaining: 0, state: 'stopped' };
+        if (action === 'com.kahikara.opendeck-redline.monbright') updateDialUI(context, action);
+        if (action === 'com.kahikara.opendeck-redline.audio') updateAudioImmediately(context);
         
         if (!pollingInterval) startPolling();
         if (!timerInterval) startTimerLoop();
@@ -188,12 +188,12 @@ ws.on('message', (data) => {
 
     if (event === 'dialRotate') {
         const ticks = msg.payload.ticks;
-        if (action === 'com.minginfo.audio') { adjustVolume(ticks); updateAudioImmediately(context); }
-        if (action === 'com.minginfo.timer') {
+        if (action === 'com.kahikara.opendeck-redline.audio') { adjustVolume(ticks); updateAudioImmediately(context); }
+        if (action === 'com.kahikara.opendeck-redline.timer') {
             let t = activeTimers[context];
             if (t.state === 'stopped' || t.state === 'paused') { t.total = Math.max(0, t.total + (ticks * 60)); t.remaining = t.total; updateTimerUI(context); }
         }
-        if (action === 'com.minginfo.monbright') {
+        if (action === 'com.kahikara.opendeck-redline.monbright') {
             monitorBrightness = Math.max(0, Math.min(100, monitorBrightness + (ticks * 5))); updateDialUI(context, action);
             clearTimeout(ddcutilTimeout); ddcutilTimeout = setTimeout(() => { exec(`ddcutil setvcp 10 ${monitorBrightness} --noverify`); }, 300);
         }
@@ -201,12 +201,12 @@ ws.on('message', (data) => {
 
     if (event === 'dialDown' || event === 'keyDown') {
         if (!activeContexts[context]?.isEncoder) {
-            if (action === 'com.minginfo.cpu') exec("plasma-systemmonitor > /dev/null 2>&1 &");
-            if (action === 'com.minginfo.gpu') exec("lact gui > /dev/null 2>&1 &");
-            if (action === 'com.minginfo.ping') updatePingImmediately(context);
+            if (action === 'com.kahikara.opendeck-redline.cpu') exec("plasma-systemmonitor > /dev/null 2>&1 &");
+            if (action === 'com.kahikara.opendeck-redline.gpu') exec("lact gui > /dev/null 2>&1 &");
+            if (action === 'com.kahikara.opendeck-redline.ping') updatePingImmediately(context);
         }
-        if (action === 'com.minginfo.audio') { toggleMute(); setTimeout(() => updateAudioImmediately(context), 100); }
-        if (action === 'com.minginfo.timer') {
+        if (action === 'com.kahikara.opendeck-redline.audio') { toggleMute(); setTimeout(() => updateAudioImmediately(context), 100); }
+        if (action === 'com.kahikara.opendeck-redline.timer') {
             let t = activeTimers[context];
             if (t.state === 'ringing') { t.state = 'stopped'; t.remaining = t.total; } 
             else if (t.state === 'stopped' && t.total > 0) t.state = 'running';
@@ -214,7 +214,7 @@ ws.on('message', (data) => {
             else if (t.state === 'paused') t.state = 'running';
             updateTimerUI(context);
         }
-        if (action === 'com.minginfo.monbright') { monitorBrightness = 50; updateDialUI(context, action); exec(`ddcutil setvcp 10 50 --noverify`); }
+        if (action === 'com.kahikara.opendeck-redline.monbright') { monitorBrightness = 50; updateDialUI(context, action); exec(`ddcutil setvcp 10 50 --noverify`); }
     }
 });
 
@@ -266,14 +266,14 @@ function startPolling() {
             let cpuData = {}, cpuTemp = {}, memData = {}, netData = [], diskData = [], procData = { list: [] }, audioData = { vol: 0, muted: false };
             const promises = [];
 
-            if (actionsList.includes('com.minginfo.cpu')) { promises.push(si.currentLoad().then(d => cpuData = d).catch(() => {})); promises.push(si.cpuTemperature().then(d => cpuTemp = d).catch(() => {})); }
-            if (actionsList.includes('com.minginfo.ram')) promises.push(si.mem().then(d => memData = d).catch(() => {}));
-            if (actionsList.includes('com.minginfo.net')) promises.push(si.networkStats('eno1').then(d => netData = d).catch(() => {}));
-            if (actionsList.includes('com.minginfo.disk')) promises.push(si.fsSize().then(d => diskData = d).catch(() => {}));
-            if (actionsList.includes('com.minginfo.top')) promises.push(si.processes().then(d => procData = d).catch(() => {}));
-            if (actionsList.includes('com.minginfo.audio')) promises.push(getAudio().then(d => audioData = d));
+            if (actionsList.includes('com.kahikara.opendeck-redline.cpu')) { promises.push(si.currentLoad().then(d => cpuData = d).catch(() => {})); promises.push(si.cpuTemperature().then(d => cpuTemp = d).catch(() => {})); }
+            if (actionsList.includes('com.kahikara.opendeck-redline.ram')) promises.push(si.mem().then(d => memData = d).catch(() => {}));
+            if (actionsList.includes('com.kahikara.opendeck-redline.net')) promises.push(si.networkStats('eno1').then(d => netData = d).catch(() => {}));
+            if (actionsList.includes('com.kahikara.opendeck-redline.disk')) promises.push(si.fsSize().then(d => diskData = d).catch(() => {}));
+            if (actionsList.includes('com.kahikara.opendeck-redline.top')) promises.push(si.processes().then(d => procData = d).catch(() => {}));
+            if (actionsList.includes('com.kahikara.opendeck-redline.audio')) promises.push(getAudio().then(d => audioData = d));
 
-            if (actionsList.includes('com.minginfo.ping')) {
+            if (actionsList.includes('com.kahikara.opendeck-redline.ping')) {
                 if (Date.now() - lastPingTime >= 5000) {
                     lastPingTime = Date.now();
                     promises.push(getPing());
@@ -284,34 +284,34 @@ function startPolling() {
 
             await Promise.all(promises);
 
-            const gpuStats = (actionsList.includes('com.minginfo.gpu') || actionsList.includes('com.minginfo.vram')) ? getAmdGpuStats() : null;
-            const cpuWatts = actionsList.includes('com.minginfo.cpu') ? getCpuPower() : null;
+            const gpuStats = (actionsList.includes('com.kahikara.opendeck-redline.gpu') || actionsList.includes('com.kahikara.opendeck-redline.vram')) ? getAmdGpuStats() : null;
+            const cpuWatts = actionsList.includes('com.kahikara.opendeck-redline.cpu') ? getCpuPower() : null;
 
             for (const context in activeContexts) {
                 const { action, isEncoder } = activeContexts[context];
 
-                if (isEncoder && action === 'com.minginfo.audio') {
+                if (isEncoder && action === 'com.kahikara.opendeck-redline.audio') {
                     const valText = audioData.muted ? 'MUTED' : `${audioData.vol}%`;
                     const imgData = generateDialImage(audioData.muted ? '🔇' : '🔊', 'VOLUME', valText, audioData.vol, audioData.muted ? "rgb(239, 68, 68)" : "rgb(74, 222, 128)");
                     sendUpdateIfChanged(context, imgData);
                 } 
                 else if (!isEncoder) {
                     let imgData = "";
-                    if (action === 'com.minginfo.cpu') imgData = generateButtonImage('💻', 'CPU', `${Math.round(cpuData.currentLoad || 0)}%`, `${cpuWatts}W | ${Math.round(cpuTemp.main || 0)}°C`, cpuData.currentLoad);
-                    else if (action === 'com.minginfo.gpu') imgData = generateButtonImage('🎮', 'GPU', `${gpuStats.usage}%`, `${gpuStats.power}W | ${gpuStats.temp}°C`, gpuStats.usage);
-                    else if (action === 'com.minginfo.ram') imgData = generateButtonImage('🧠', 'RAM', `${Math.round((memData.active / memData.total) * 100 || 0)}%`, `${(memData.active / (1024 ** 3)).toFixed(1)} GB`, (memData.active / memData.total) * 100);
-                    else if (action === 'com.minginfo.vram') {
+                    if (action === 'com.kahikara.opendeck-redline.cpu') imgData = generateButtonImage('💻', 'CPU', `${Math.round(cpuData.currentLoad || 0)}%`, `${cpuWatts}W | ${Math.round(cpuTemp.main || 0)}°C`, cpuData.currentLoad);
+                    else if (action === 'com.kahikara.opendeck-redline.gpu') imgData = generateButtonImage('🎮', 'GPU', `${gpuStats.usage}%`, `${gpuStats.power}W | ${gpuStats.temp}°C`, gpuStats.usage);
+                    else if (action === 'com.kahikara.opendeck-redline.ram') imgData = generateButtonImage('🧠', 'RAM', `${Math.round((memData.active / memData.total) * 100 || 0)}%`, `${(memData.active / (1024 ** 3)).toFixed(1)} GB`, (memData.active / memData.total) * 100);
+                    else if (action === 'com.kahikara.opendeck-redline.vram') {
                         let usedGB = (gpuStats.vramUsed / (1024 ** 3)).toFixed(1);
                         let totalGB = (gpuStats.vramTotal / (1024 ** 3)).toFixed(0);
                         let percent = gpuStats.vramTotal > 0 ? (gpuStats.vramUsed / gpuStats.vramTotal) * 100 : 0;
                         imgData = generateButtonImage('🎞️', 'VRAM', `${Math.round(percent)}%`, `${usedGB} / ${totalGB} GB`, percent);
                     }
-                    else if (action === 'com.minginfo.net') {
+                    else if (action === 'com.kahikara.opendeck-redline.net') {
                         let dl = "0.0", ul = "0.0";
                         if (netData && netData.length > 0) { dl = ((netData[0].rx_sec * 8) / 1000000).toFixed(1); ul = ((netData[0].tx_sec * 8) / 1000000).toFixed(1); }
                         imgData = generateButtonImage('🌐', 'NET', `↓ ${dl}`, `↑ ${ul} Mb/s`, -1);
                     }
-                    else if (action === 'com.minginfo.disk') { 
+                    else if (action === 'com.kahikara.opendeck-redline.disk') { 
                         let uniqueDisks = {};
                         diskData.forEach(d => {
                             if (d.fs && d.fs.startsWith('/dev/') && !d.fs.includes('loop')) {
@@ -326,10 +326,10 @@ function startPolling() {
                         let freeGB = totalSize > 0 ? (totalSize - totalUsed) / (1024 ** 3) : 0;
                         imgData = generateButtonImage('🖴', 'DISKS', `${Math.round(percent)}%`, `${Math.round(freeGB)} GB free`, percent); 
                     }
-                    else if (action === 'com.minginfo.ping') {
+                    else if (action === 'com.kahikara.opendeck-redline.ping') {
                         imgData = generateButtonImage('⚡', 'PING', `${lastPing} ms`, `1.1.1.1`, Math.min(100, lastPing));
                     }
-                    else if (action === 'com.minginfo.top') { 
+                    else if (action === 'com.kahikara.opendeck-redline.top') { 
                         const top = procData.list?.filter(p => {
                             let n = p.name.toLowerCase();
                             return !n.includes('node') && !n.includes('opendeck') && !n.includes('systemd') && 
@@ -345,7 +345,7 @@ function startPolling() {
                             imgData = generateButtonImage('🔥', 'TOP', 'Idle', `0% CPU`, 0); 
                         }
                     }
-                    else if (action === 'com.minginfo.time') { const d = new Date(); imgData = generateButtonImage('🕒', 'UHR', d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }), d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }), -1); }
+                    else if (action === 'com.kahikara.opendeck-redline.time') { const d = new Date(); imgData = generateButtonImage('🕒', 'UHR', d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }), d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }), -1); }
 
                     if (imgData !== "") {
                         sendUpdateIfChanged(context, imgData);
