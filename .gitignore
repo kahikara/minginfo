@@ -1,2 +1,9 @@
 node_modules/
 *.zip
+go
+
+# build output
+dist/
+# keep plugin assets tracked
+!icons/
+!icons/*
