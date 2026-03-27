@@ -4,7 +4,8 @@
   "description": "An OpenDeck plugin for AMD focused Linux monitoring",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "check": "node --check index.js",
+    "build": "./build-plugin.sh"
   },
   "keywords": [
     "opendeck",
