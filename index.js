@@ -47,12 +47,10 @@ const DEFAULT_SETTINGS = Object.freeze({
   refreshRate: 3,
 });
 
+const POLL_INTERVAL_MS = 2000;
 const TOP_REFRESH_MS = 4000;
-const TOP_HOLD_MS = 12000;
 const NETWORK_CACHE_MS = 10000;
 const BRIGHTNESS_REFRESH_MS = 15000;
-const CPU_POWER_SOURCE_CACHE_MS = 10000;
-const DISK_CACHE_MS = 30000;
 
 const NETWORK_EXCLUDED_PREFIXES = ['lo', 'docker', 'br-', 'veth', 'virbr', 'vmnet', 'vboxnet', 'tailscale', 'zt', 'tun', 'tap', 'wg'];
 const NETWORK_PREFERRED_PREFIXES = ['en', 'eth', 'wl', 'wlan', 'ww', 'usb'];
@@ -64,40 +62,32 @@ const activeContexts = Object.create(null);
 const activeTimers = Object.create(null);
 const lastSentImages = Object.create(null);
 const transientImageTimers = Object.create(null);
-const renderRetryTimers = Object.create(null);
 const contextSettings = Object.create(null);
-const actionSettings = Object.create(null);
 const pingStates = Object.create(null);
+
+let globalPluginSettings = { ...DEFAULT_SETTINGS };
 
 let pollingInterval = null;
 let timerInterval = null;
 let pollingInProgress = false;
-let currentPollingRateMs = 0;
 let ddcutilTimeout = null;
 let shuttingDown = false;
+let currentPollingRateMs = 0;
 
 let monitorBrightness = 50;
 let monitorBrightnessAvailable = false;
 let lastBrightnessSync = 0;
 
 let amdgpuDirCache = null;
-let cpuPowerSourceCache = {
-  timestamp: 0,
-  sources: [],
+let cpuPowerFileCache = null;
+let cpuPowerSampleCache = {
+  path: null,
+  lastRawValue: null,
+  lastTimestamp: 0,
+  watts: 0,
 };
-let cpuPowerSampleCache = Object.create(null);
 let procCache = { timestamp: 0, data: { list: [] } };
-let topProcessCache = {
-  grouped: { name: '', cpu: 0, timestamp: 0 },
-  raw: { name: '', cpu: 0, timestamp: 0 },
-};
 let networkCache = { timestamp: 0, iface: null };
-let diskCache = {
-  timestamp: 0,
-  summary: { available: false, percent: 0, freeGB: 0 },
-  refreshPromise: null,
-};
-let globalPluginSettings = null;
 
 const toolCache = new Map();
 const warnedKeys = new Set();
@@ -143,12 +133,13 @@ function getAdaptiveFontSize(text, baseSize, minSize, softLimit = 6, step = 2) {
 }
 
 function shellEscape(value) {
-  return `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
 }
 
 function normalizeSettings(settings = {}) {
   const normalized = {
     ...DEFAULT_SETTINGS,
+    ...globalPluginSettings,
   };
 
   if (typeof settings.pingHost === 'string' && settings.pingHost.trim()) {
@@ -176,77 +167,27 @@ function normalizeSettings(settings = {}) {
   }
 
   const refresh = Number.parseInt(settings.refreshRate, 10);
-  normalized.refreshRate = [1, 3, 5, 10].includes(refresh) ? refresh : DEFAULT_SETTINGS.refreshRate;
+  normalized.refreshRate = [1, 3, 5, 10].includes(refresh) ? refresh : (globalPluginSettings.refreshRate || DEFAULT_SETTINGS.refreshRate);
 
   return normalized;
 }
 
-function getEffectiveRefreshRateMs() {
-  const settings = normalizeSettings(globalPluginSettings || {});
-  return settings.refreshRate * 1000;
-}
-
-function restartPollingIfNeeded() {
-  const desired = getEffectiveRefreshRateMs();
-
-  if (pollingInterval && currentPollingRateMs === desired) {
-    return;
-  }
-
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
-    pollingInterval = null;
-    currentPollingRateMs = 0;
-  }
-
-  if (Object.keys(activeContexts).length > 0) {
-    startPolling();
-  }
-}
-
-function storeSettingsForContext(context, settings, action = '') {
+function storeSettingsForContext(context, settings) {
   const normalized = normalizeSettings(settings);
-  const previousRate = getEffectiveRefreshRateMs();
-
-  if (context) {
-    contextSettings[context] = normalized;
-  }
-
-  const resolvedAction = action || activeContexts[context]?.action || '';
-  if (resolvedAction) {
-    actionSettings[resolvedAction] = normalized;
-  }
-
-  globalPluginSettings = {
-    ...(globalPluginSettings || {}),
-    ...normalized,
-  };
-
-  if (previousRate !== getEffectiveRefreshRateMs()) {
-    restartPollingIfNeeded();
-  }
+  contextSettings[context] = normalized;
+  globalPluginSettings = { ...globalPluginSettings, ...normalized };
 }
 
-function getSettingsForContext(context, action = '') {
-  const resolvedAction = action || activeContexts[context]?.action || '';
-
-  if (context && contextSettings[context]) {
-    return normalizeSettings(contextSettings[context]);
-  }
-
-  if (resolvedAction && actionSettings[resolvedAction]) {
-    return normalizeSettings(actionSettings[resolvedAction]);
-  }
-
-  if (globalPluginSettings) {
-    return normalizeSettings(globalPluginSettings);
-  }
-
-  return normalizeSettings({});
+function getSettingsForContext(context) {
+  return normalizeSettings(contextSettings[context] || {});
 }
 
 function getPluginWideSettings() {
   return normalizeSettings(globalPluginSettings || {});
+}
+
+function getResolvedAction(context, fallbackAction = '') {
+  return activeContexts[context]?.action || fallbackAction || '';
 }
 
 function getPingState(context) {
@@ -261,16 +202,12 @@ function getPingState(context) {
   return pingStates[context];
 }
 
-function getResolvedAction(context, fallbackAction = '') {
-  return activeContexts[context]?.action || fallbackAction || '';
-}
-
 function escapeXml(value = '') {
   return String(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/\"/g, '&quot;')
+    .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 }
 
@@ -309,23 +246,7 @@ function safeSend(payload) {
 }
 
 function sendUpdateIfChanged(context, image) {
-  if (!image) return;
-  if (lastSentImages[context] === image) return;
-
-  safeSend({
-    event: 'setImage',
-    context,
-    payload: {
-      image,
-      target: 0,
-    },
-  });
-
-  lastSentImages[context] = image;
-}
-
-function forceSendImage(context, image) {
-  if (!image) return;
+  if (!image || image === lastSentImages[context]) return;
 
   safeSend({
     event: 'setImage',
@@ -346,41 +267,19 @@ function clearTransientTimer(context) {
   }
 }
 
-function clearRenderRetries(context) {
-  if (renderRetryTimers[context]) {
-    for (const timer of renderRetryTimers[context]) {
-      clearTimeout(timer);
-    }
-    delete renderRetryTimers[context];
-  }
-}
-
-function queueRenderRetries(context, imageFactory, delays = [0, 250, 800, 1600]) {
-  clearRenderRetries(context);
-  renderRetryTimers[context] = [];
-
-  for (const delay of delays) {
-    const timer = setTimeout(() => {
-      if (!activeContexts[context]) return;
-      forceSendImage(context, imageFactory());
-    }, delay);
-
-    renderRetryTimers[context].push(timer);
-  }
-}
-
 function showTransientImage(context, image, duration = TRANSIENT_IMAGE_MS) {
   clearTransientTimer(context);
   sendUpdateIfChanged(context, image);
 
   transientImageTimers[context] = setTimeout(() => {
+    delete lastSentImages[context];
     delete transientImageTimers[context];
   }, duration);
 }
 
 function getShortProcName(name) {
   const cleaned = String(name || '')
-    .split(/[\\/\\\\]/)
+    .split(/[\/\\]/)
     .pop()
     .replace(/\.(exe|bin|AppImage)$/i, '');
 
@@ -448,9 +347,6 @@ function isExcludedTopProcess(name) {
 }
 
 function getTopProcessSummary(procData, mode = 'grouped') {
-  const cacheKey = mode === 'raw' ? 'raw' : 'grouped';
-  const cached = topProcessCache[cacheKey];
-  const now = Date.now();
   const list = Array.isArray(procData?.list) ? procData.list : [];
   const filtered = [];
 
@@ -459,7 +355,7 @@ function getTopProcessSummary(procData, mode = 'grouped') {
     const cpu = Number(process.cpu || 0);
 
     if (!rawName) continue;
-    if (!Number.isFinite(cpu) || cpu <= 0.15) continue;
+    if (!Number.isFinite(cpu) || cpu <= 0.2) continue;
     if (isExcludedTopProcess(rawName)) continue;
 
     filtered.push({
@@ -469,83 +365,40 @@ function getTopProcessSummary(procData, mode = 'grouped') {
     });
   }
 
-  const useCached = () => {
-    if (cached && cached.name && (now - cached.timestamp) <= TOP_HOLD_MS) {
-      return {
-        name: cached.name,
-        cpu: cached.cpu,
-      };
-    }
-
-    return null;
-  };
-
-  if (filtered.length === 0) {
-    return useCached();
-  }
-
-  let result = null;
+  if (filtered.length === 0) return null;
 
   if (mode === 'raw') {
     const best = filtered.sort((a, b) => b.cpu - a.cpu)[0];
+    if (!best || best.cpu < 1) return null;
 
-    if (best) {
-      const normalizedCpu = clamp(
-        Math.max(1, Math.round(best.cpu > 100 ? best.cpu / coreCount : best.cpu)),
-        0,
-        100
-      );
-
-      if (normalizedCpu >= 1) {
-        result = {
-          name: best.label,
-          cpu: normalizedCpu,
-        };
-      }
-    }
-  } else {
-    const grouped = new Map();
-
-    for (const process of filtered) {
-      grouped.set(process.label, (grouped.get(process.label) || 0) + process.cpu);
-    }
-
-    let bestName = '';
-    let bestCpu = 0;
-
-    for (const [name, cpu] of grouped.entries()) {
-      if (cpu > bestCpu) {
-        bestName = name;
-        bestCpu = cpu;
-      }
-    }
-
-    if (bestName) {
-      const normalizedCpu = clamp(
-        Math.max(1, Math.round(bestCpu > 100 ? bestCpu / coreCount : bestCpu)),
-        0,
-        100
-      );
-
-      if (normalizedCpu >= 1) {
-        result = {
-          name: bestName,
-          cpu: normalizedCpu,
-        };
-      }
-    }
-  }
-
-  if (result) {
-    topProcessCache[cacheKey] = {
-      name: result.name,
-      cpu: result.cpu,
-      timestamp: now,
+    return {
+      name: best.label,
+      cpu: clamp(Math.round(best.cpu > 100 ? best.cpu / coreCount : best.cpu), 0, 100),
     };
-    return result;
   }
 
-  return useCached();
+  const grouped = new Map();
+
+  for (const process of filtered) {
+    grouped.set(process.label, (grouped.get(process.label) || 0) + process.cpu);
+  }
+
+  let bestName = '';
+  let bestCpu = 0;
+
+  for (const [name, cpu] of grouped.entries()) {
+    if (cpu > bestCpu) {
+      bestName = name;
+      bestCpu = cpu;
+    }
+  }
+
+  if (bestCpu < 1) return null;
+
+  return {
+    name: bestName,
+    cpu: clamp(Math.round(bestCpu > 100 ? bestCpu / coreCount : bestCpu), 0, 100),
+  };
 }
 
 function generateButtonImage(icon, title, line1, line2, percent = -1) {
@@ -553,9 +406,9 @@ function generateButtonImage(icon, title, line1, line2, percent = -1) {
   const safeLine1 = String(line1 || '');
   const safeLine2 = String(line2 || '');
 
-  const titleSize = getAdaptiveFontSize(safeTitle, 19, 15, 8, 1);
-  const line1Size = getAdaptiveFontSize(safeLine1, 35, 21, 5, 2);
-  const line2Size = getAdaptiveFontSize(safeLine2, 20, 13, 16, 1);
+  const titleSize = getAdaptiveFontSize(safeTitle, 20, 16, 8, 1);
+  const line1Size = getAdaptiveFontSize(safeLine1, 38, 22, 5, 2);
+  const line2Size = getAdaptiveFontSize(safeLine2, 18, 12, 16, 1);
 
   let barHtml = '';
 
@@ -570,10 +423,10 @@ function generateButtonImage(icon, title, line1, line2, percent = -1) {
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#18181b"/>
-    <text x="60" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="21" text-anchor="end">${escapeXml(icon)}</text>
-    <text x="64" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="start">${escapeXml(safeTitle)}</text>
-    <text x="72" y="76" fill="#ffffff" font-family="sans-serif" font-size="${line1Size}" font-weight="bold" text-anchor="middle">${escapeXml(safeLine1)}</text>
-    <text x="72" y="104" fill="#a1a1aa" font-family="sans-serif" font-size="${line2Size}" text-anchor="middle">${escapeXml(safeLine2)}</text>
+    <text x="28" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="22" text-anchor="middle">${escapeXml(icon)}</text>
+    <text x="44" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="start">${escapeXml(safeTitle)}</text>
+    <text x="72" y="78" fill="#ffffff" font-family="sans-serif" font-size="${line1Size}" font-weight="bold" text-anchor="middle">${escapeXml(safeLine1)}</text>
+    <text x="72" y="102" fill="#a1a1aa" font-family="sans-serif" font-size="${line2Size}" text-anchor="middle">${escapeXml(safeLine2)}</text>
     ${barHtml}
   </svg>`;
 
@@ -585,7 +438,7 @@ function generateDialImage(icon, title, valueText, percent = -1, barColor = 'rgb
   const safeValue = String(valueText || '');
 
   const titleSize = getAdaptiveFontSize(safeTitle, 18, 14, 10, 1);
-  const valueSize = getAdaptiveFontSize(safeValue, 40, 24, 4, 2);
+  const valueSize = getAdaptiveFontSize(safeValue, 42, 24, 4, 2);
 
   let barHtml = '';
 
@@ -597,9 +450,9 @@ function generateDialImage(icon, title, valueText, percent = -1, barColor = 'rgb
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#18181b"/>
-    <text x="60" y="32" fill="#a1a1aa" font-family="sans-serif" font-size="21" text-anchor="end">${escapeXml(icon)}</text>
-    <text x="64" y="32" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="start">${escapeXml(safeTitle)}</text>
-    <text x="72" y="86" fill="#ffffff" font-family="sans-serif" font-size="${valueSize}" font-weight="bold" text-anchor="middle">${escapeXml(safeValue)}</text>
+    <text x="28" y="32" fill="#a1a1aa" font-family="sans-serif" font-size="22" text-anchor="middle">${escapeXml(icon)}</text>
+    <text x="44" y="32" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="start">${escapeXml(safeTitle)}</text>
+    <text x="72" y="88" fill="#ffffff" font-family="sans-serif" font-size="${valueSize}" font-weight="bold" text-anchor="middle">${escapeXml(safeValue)}</text>
     ${barHtml}
   </svg>`;
 
@@ -614,11 +467,409 @@ function unavailableDial(icon, title, reason) {
   return generateDialImage(icon, title, reason, -1, 'rgb(239, 68, 68)');
 }
 
-function getTimerImage(context) {
-  const timer = activeTimers[context];
-  if (!timer) {
-    return generateDialImage('⏱️', 'TIMER', '0:00', 0, 'rgb(59, 130, 246)');
+function fileExists(filePath) {
+  try {
+    return fs.existsSync(filePath);
+  } catch {
+    return false;
   }
+}
+
+function readText(filePath) {
+  return fs.readFileSync(filePath, 'utf8').trim();
+}
+
+function findAmdGpuDir(force = false) {
+  if (amdgpuDirCache && !force && fileExists(path.join(amdgpuDirCache, 'name'))) {
+    return amdgpuDirCache;
+  }
+
+  amdgpuDirCache = null;
+
+  try {
+    const hwmonRoot = '/sys/class/hwmon';
+    const dirs = fs.readdirSync(hwmonRoot);
+
+    for (const dir of dirs) {
+      const fullPath = path.join(hwmonRoot, dir);
+      const namePath = path.join(fullPath, 'name');
+
+      if (!fileExists(namePath)) continue;
+      if (readText(namePath) === 'amdgpu') {
+        amdgpuDirCache = fullPath;
+        return amdgpuDirCache;
+      }
+    }
+  } catch (error) {
+    warnOnce('amdgpu-scan-failed', `amdgpu scan failed: ${error.message}`);
+  }
+
+  return null;
+}
+
+function getAmdGpuStats() {
+  const gpuDir = findAmdGpuDir();
+
+  if (!gpuDir) {
+    return {
+      available: false,
+      temp: 0,
+      power: 0,
+      usage: 0,
+      vramUsed: 0,
+      vramTotal: 0,
+    };
+  }
+
+  const readNumber = (file) => {
+    const fullPath = path.join(gpuDir, file);
+    if (!fileExists(fullPath)) return null;
+    const value = Number.parseInt(readText(fullPath), 10);
+    return Number.isFinite(value) ? value : null;
+  };
+
+  try {
+    const tempEdge = readNumber('temp1_input');
+    const power = readNumber('power1_average') ?? readNumber('power1_input');
+    const usagePath = path.join(gpuDir, 'device', 'gpu_busy_percent');
+    const vramUsedPath = path.join(gpuDir, 'device', 'mem_info_vram_used');
+    const vramTotalPath = path.join(gpuDir, 'device', 'mem_info_vram_total');
+
+    const usage = fileExists(usagePath) ? Number.parseInt(readText(usagePath), 10) : 0;
+    const vramUsed = fileExists(vramUsedPath) ? Number.parseInt(readText(vramUsedPath), 10) : 0;
+    const vramTotal = fileExists(vramTotalPath) ? Number.parseInt(readText(vramTotalPath), 10) : 0;
+
+    return {
+      available: true,
+      temp: tempEdge ? Math.round(tempEdge / 1000) : 0,
+      power: power ? Math.round(power / 1000000) : 0,
+      usage: Number.isFinite(usage) ? usage : 0,
+      vramUsed: Number.isFinite(vramUsed) ? vramUsed : 0,
+      vramTotal: Number.isFinite(vramTotal) ? vramTotal : 0,
+    };
+  } catch (error) {
+    amdgpuDirCache = null;
+    warnOnce('amdgpu-read-failed', `amdgpu read failed: ${error.message}`);
+    return {
+      available: false,
+      temp: 0,
+      power: 0,
+      usage: 0,
+      vramUsed: 0,
+      vramTotal: 0,
+    };
+  }
+}
+
+function findCpuPowerFile(force = false) {
+  if (cpuPowerFileCache && !force && fileExists(cpuPowerFileCache)) {
+    return cpuPowerFileCache;
+  }
+
+  cpuPowerFileCache = null;
+
+  try {
+    const hwmonRoot = '/sys/class/hwmon';
+    const dirs = fs.readdirSync(hwmonRoot);
+
+    for (const dir of dirs) {
+      const fullPath = path.join(hwmonRoot, dir);
+      const namePath = path.join(fullPath, 'name');
+
+      if (!fileExists(namePath)) continue;
+
+      const name = readText(namePath);
+      if (!['zenpower', 'amd_energy', 'zenergy'].includes(name)) continue;
+
+      const candidates = [
+        'power1_average',
+        'power1_input',
+        'power_input',
+        'energy1_input',
+        'energy_input',
+      ];
+
+      for (const candidate of candidates) {
+        const candidatePath = path.join(fullPath, candidate);
+        if (fileExists(candidatePath)) {
+          cpuPowerFileCache = candidatePath;
+          return cpuPowerFileCache;
+        }
+      }
+    }
+  } catch (error) {
+    warnOnce('cpu-power-scan-failed', `cpu power scan failed: ${error.message}`);
+  }
+
+  return null;
+}
+
+function getCpuPower() {
+  const powerFile = findCpuPowerFile();
+
+  if (!powerFile) {
+    return { available: false, watts: 0 };
+  }
+
+  try {
+    const rawValue = Number.parseInt(readText(powerFile), 10);
+    if (!Number.isFinite(rawValue)) {
+      return { available: false, watts: 0 };
+    }
+
+    if (powerFile.endsWith('power1_average') || powerFile.endsWith('power1_input') || powerFile.endsWith('power_input')) {
+      const watts = rawValue / 1000000;
+      if (!Number.isFinite(watts) || watts < 0) {
+        return { available: false, watts: 0 };
+      }
+
+      const rounded = watts < 10 ? Math.round(watts * 10) / 10 : Math.round(watts);
+      return { available: true, watts: rounded };
+    }
+
+    if (powerFile.endsWith('energy1_input') || powerFile.endsWith('energy_input')) {
+      const now = Date.now();
+
+      if (cpuPowerSampleCache.path !== powerFile) {
+        cpuPowerSampleCache = {
+          path: powerFile,
+          lastRawValue: rawValue,
+          lastTimestamp: now,
+          watts: 0,
+        };
+        return { available: false, watts: 0 };
+      }
+
+      if (
+        Number.isFinite(cpuPowerSampleCache.lastRawValue) &&
+        cpuPowerSampleCache.lastTimestamp > 0 &&
+        rawValue >= cpuPowerSampleCache.lastRawValue
+      ) {
+        const deltaEnergyMicroJoules = rawValue - cpuPowerSampleCache.lastRawValue;
+        const deltaSeconds = (now - cpuPowerSampleCache.lastTimestamp) / 1000;
+
+        if (deltaSeconds > 0) {
+          const watts = (deltaEnergyMicroJoules / 1000000) / deltaSeconds;
+          if (Number.isFinite(watts) && watts >= 0) {
+            cpuPowerSampleCache.watts = watts;
+          }
+        }
+      } else if (
+        Number.isFinite(cpuPowerSampleCache.lastRawValue) &&
+        rawValue < cpuPowerSampleCache.lastRawValue
+      ) {
+        cpuPowerSampleCache.watts = 0;
+      }
+
+      cpuPowerSampleCache.path = powerFile;
+      cpuPowerSampleCache.lastRawValue = rawValue;
+      cpuPowerSampleCache.lastTimestamp = now;
+
+      if (Number.isFinite(cpuPowerSampleCache.watts) && cpuPowerSampleCache.watts >= 0) {
+        const rounded = cpuPowerSampleCache.watts < 10
+          ? Math.round(cpuPowerSampleCache.watts * 10) / 10
+          : Math.round(cpuPowerSampleCache.watts);
+
+        return { available: true, watts: rounded };
+      }
+
+      return { available: false, watts: 0 };
+    }
+
+    return { available: false, watts: 0 };
+  } catch (error) {
+    cpuPowerFileCache = null;
+    cpuPowerSampleCache = {
+      path: null,
+      lastRawValue: null,
+      lastTimestamp: 0,
+      watts: 0,
+    };
+    warnOnce('cpu-power-read-failed', `cpu power read failed: ${error.message}`);
+    return { available: false, watts: 0 };
+  }
+}
+
+async function detectActiveInterface(force = false) {
+  const now = Date.now();
+
+  if (!force && networkCache.iface && (now - networkCache.timestamp) < NETWORK_CACHE_MS) {
+    return networkCache.iface;
+  }
+
+  networkCache = { timestamp: now, iface: null };
+
+  try {
+    const interfaces = await si.networkInterfaces();
+
+    const candidates = interfaces.filter((iface) => {
+      const name = String(iface.iface || '');
+      return !iface.internal && !iface.virtual && name && iface.operstate === 'up';
+    });
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const preferred = [...candidates].sort((a, b) => scoreNetworkInterface(b) - scoreNetworkInterface(a))[0] || null;
+
+    networkCache.iface = preferred ? preferred.iface : null;
+    return networkCache.iface;
+  } catch (error) {
+    warnOnce('network-interface-detect-failed', `network interface detection failed: ${error.message}`);
+    return null;
+  }
+}
+
+async function getNetworkStats(overrideInterface = '') {
+  let iface = String(overrideInterface || '').trim();
+
+  try {
+    if (iface) {
+      const data = await si.networkStats(iface);
+      if (Array.isArray(data) && data.length > 0) {
+        return { available: true, iface, data };
+      }
+    }
+
+    iface = await detectActiveInterface();
+
+    if (iface) {
+      let data = await si.networkStats(iface);
+
+      if (Array.isArray(data) && data.length > 0) {
+        return { available: true, iface, data };
+      }
+
+      iface = await detectActiveInterface(true);
+
+      if (iface) {
+        data = await si.networkStats(iface);
+        if (Array.isArray(data) && data.length > 0) {
+          return { available: true, iface, data };
+        }
+      }
+    }
+
+    const data = await si.networkStats();
+    return { available: Array.isArray(data) && data.length > 0, iface: null, data };
+  } catch (error) {
+    warnOnce('network-stats-failed', `network stats failed: ${error.message}`);
+    return { available: false, iface: null, data: [] };
+  }
+}
+
+async function refreshMonitorBrightness(force = false) {
+  const now = Date.now();
+
+  if (!force && (now - lastBrightnessSync) < BRIGHTNESS_REFRESH_MS) {
+    return monitorBrightnessAvailable;
+  }
+
+  lastBrightnessSync = now;
+
+  if (!(await commandExists('ddcutil'))) {
+    monitorBrightnessAvailable = false;
+    return false;
+  }
+
+  const result = await runCommand('ddcutil getvcp 10 --brief', 2500);
+  const match =
+    result.stdout.match(/current value =\s*([0-9]+)/i) ||
+    result.stdout.match(/current value:\s*([0-9]+)/i) ||
+    result.stdout.match(/C\s+([0-9]+)/);
+
+  if (match) {
+    monitorBrightness = clamp(Number.parseInt(match[1], 10) || 50, 0, 100);
+    monitorBrightnessAvailable = true;
+    return true;
+  }
+
+  monitorBrightnessAvailable = false;
+  warnOnce('ddcutil-brightness-read-failed', 'ddcutil brightness read failed');
+  return false;
+}
+
+async function setMonitorBrightness(value) {
+  monitorBrightness = clamp(value, 0, 100);
+
+  if (!(await commandExists('ddcutil'))) {
+    monitorBrightnessAvailable = false;
+    return false;
+  }
+
+  monitorBrightnessAvailable = true;
+
+  clearTimeout(ddcutilTimeout);
+  ddcutilTimeout = setTimeout(() => {
+    runCommand(`ddcutil setvcp 10 ${monitorBrightness} --noverify`, 2500).catch(() => {});
+  }, 300);
+
+  return true;
+}
+
+async function getPing(context, host, force = false) {
+  const state = getPingState(context);
+  const target = String(host || DEFAULT_SETTINGS.pingHost).trim() || DEFAULT_SETTINGS.pingHost;
+  const result = await runCommand(`ping -c 1 -W 2 ${shellEscape(target)}`, 4000);
+
+  if (result.error || !result.stdout) {
+    state.failedPings += 1;
+    if (state.failedPings > 3 || force) state.lastPing = 0;
+    return state.lastPing;
+  }
+
+  state.failedPings = 0;
+  const match = result.stdout.match(/time=([0-9.]+)/);
+
+  if (match) {
+    const milliseconds = Number.parseFloat(match[1]);
+    if (Number.isFinite(milliseconds)) {
+      state.lastPing = milliseconds > 0 && milliseconds < 1 ? 1 : Math.round(milliseconds);
+    }
+  }
+
+  return state.lastPing;
+}
+
+async function getAudio() {
+  if (!(await commandExists('wpctl'))) {
+    return { available: false, vol: 0, muted: false };
+  }
+
+  const result = await runCommand('wpctl get-volume @DEFAULT_AUDIO_SINK@', 2000);
+  if (result.error || !result.stdout) {
+    return { available: false, vol: 0, muted: false };
+  }
+
+  const match = result.stdout.match(/([0-9]*\.?[0-9]+)/);
+  const volume = match ? Math.round(Number.parseFloat(match[1]) * 100) : 0;
+  const muted = result.stdout.includes('MUTED');
+
+  return {
+    available: true,
+    vol: clamp(Number.isFinite(volume) ? volume : 0, 0, 100),
+    muted,
+  };
+}
+
+async function adjustVolume(ticks, stepPercent = 2) {
+  if (!(await commandExists('wpctl'))) return false;
+  const step = clamp(Number.parseInt(stepPercent, 10) || 2, 1, 20);
+  await runCommand('wpctl set-mute @DEFAULT_AUDIO_SINK@ 0', 1500);
+  await runCommand(`wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ ${ticks > 0 ? `${step}%+` : `${step}%-`}`, 1500);
+  return true;
+}
+
+async function toggleMute() {
+  if (!(await commandExists('wpctl'))) return false;
+  await runCommand('wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle', 1500);
+  return true;
+}
+
+function updateTimerUI(context) {
+  const timer = activeTimers[context];
+  if (!timer) return;
 
   const timeString = `${Math.floor(timer.remaining / 60)}:${String(timer.remaining % 60).padStart(2, '0')}`;
   const percent = timer.total > 0 ? Math.round((timer.remaining / timer.total) * 100) : 0;
@@ -636,11 +887,7 @@ function getTimerImage(context) {
     icon = '🔔';
   }
 
-  return generateDialImage(icon, title, timeString, percent, color);
-}
-
-function updateTimerUI(context) {
-  sendUpdateIfChanged(context, getTimerImage(context));
+  sendUpdateIfChanged(context, generateDialImage(icon, title, timeString, percent, color));
 }
 
 function updateBrightnessUI(context) {
@@ -668,7 +915,7 @@ async function updateAudioImmediately(context) {
 }
 
 async function updatePingImmediately(context) {
-  const settings = getSettingsForContext(context, ACTIONS.ping);
+  const settings = getSettingsForContext(context);
   const target = settings.pingHost || DEFAULT_SETTINGS.pingHost;
   const targetLabel = target.length > 12 ? `${target.slice(0, 11)}…` : target;
   const state = getPingState(context);
@@ -677,52 +924,6 @@ async function updatePingImmediately(context) {
   state.lastPingTime = Date.now();
   await getPing(context, target, true);
   sendUpdateIfChanged(context, generateButtonImage('⚡', 'PING', `${state.lastPing} ms`, targetLabel, Math.min(100, state.lastPing)));
-}
-
-function primeActionUI(context, action) {
-  if (!context || !action) return;
-
-  if (action === ACTIONS.audio) {
-    queueRenderRetries(context, () => generateDialImage('🔊', 'VOLUME', '...', 0, 'rgb(74, 222, 128)'));
-    void updateAudioImmediately(context);
-    return;
-  }
-
-  if (action === ACTIONS.timer) {
-    queueRenderRetries(context, () => getTimerImage(context));
-    updateTimerUI(context);
-    return;
-  }
-
-  if (action === ACTIONS.monbright) {
-    queueRenderRetries(context, () => generateDialImage('☀️', 'MONITOR', '...', 50, 'rgb(250, 204, 21)'));
-    void refreshMonitorBrightness(true).then(() => {
-      if (activeContexts[context]) {
-        updateBrightnessUI(context);
-      }
-    });
-    return;
-  }
-
-  if (action === ACTIONS.disk) {
-    queueRenderRetries(context, () => generateButtonImage('🖴', 'DISKS', '...', 'Loading...', -1));
-    updateDiskUI(context);
-    void refreshDiskSummary().then(() => {
-      if (activeContexts[context]) {
-        updateDiskUI(context);
-      }
-    });
-  }
-}
-
-function reprimeVisibleContexts() {
-  for (const context of Object.keys(activeContexts)) {
-    const action = activeContexts[context]?.action;
-    delete lastSentImages[context];
-    if (action === ACTIONS.audio || action === ACTIONS.timer || action === ACTIONS.monbright || action === ACTIONS.disk) {
-      primeActionUI(context, action);
-    }
-  }
 }
 
 async function openActionTool(action, context) {
@@ -770,14 +971,9 @@ function cleanupRuntime() {
   timerInterval = null;
   ddcutilTimeout = null;
   pollingInProgress = false;
-  currentPollingRateMs = 0;
 
   for (const context of Object.keys(transientImageTimers)) {
     clearTransientTimer(context);
-  }
-
-  for (const context of Object.keys(renderRetryTimers)) {
-    clearRenderRetries(context);
   }
 }
 
@@ -832,31 +1028,44 @@ ws.on('message', async (data) => {
       };
 
       delete lastSentImages[context];
-      storeSettingsForContext(context, message.payload?.settings || {}, action);
+      storeSettingsForContext(context, message.payload?.settings || {});
 
       if (action === ACTIONS.timer && !activeTimers[context]) {
         activeTimers[context] = { total: 0, remaining: 0, state: 'stopped' };
       }
 
-      primeActionUI(context, action);
-      reprimeVisibleContexts();
+      if (action === ACTIONS.monbright) {
+        await refreshMonitorBrightness(true);
+        updateBrightnessUI(context);
+      }
 
-      restartPollingIfNeeded();
+      if (action === ACTIONS.audio) {
+        await updateAudioImmediately(context);
+      }
 
+      if (action === ACTIONS.timer) {
+        updateTimerUI(context);
+      }
+
+      if (action === ACTIONS.disk) {
+        sendUpdateIfChanged(context, generateButtonImage('🖴', 'DISKS', '...', 'Loading...', -1));
+      }
+
+      if (!pollingInterval) startPolling();
       if (!timerInterval) startTimerLoop();
       return;
     }
 
     if (event === 'didReceiveSettings') {
-      const resolvedAction = getResolvedAction(context, action);
       const merged = normalizeSettings({
         ...globalPluginSettings,
         ...(message.payload?.settings || {}),
       });
 
-      globalPluginSettings = merged;
-      storeSettingsForContext(context, merged, resolvedAction);
+      storeSettingsForContext(context, merged);
       delete lastSentImages[context];
+
+      const resolvedAction = getResolvedAction(context, action);
 
       if (resolvedAction === ACTIONS.audio) {
         await updateAudioImmediately(context);
@@ -866,25 +1075,31 @@ ws.on('message', async (data) => {
         await updatePingImmediately(context);
       } else if (resolvedAction === ACTIONS.timer) {
         updateTimerUI(context);
-      } else if (resolvedAction === ACTIONS.disk) {
-        updateDiskUI(context);
       }
 
-      restartPollingIfNeeded();
+      if (pollingInterval) {
+        const desired = (getPluginWideSettings().refreshRate || 3) * 1000;
+        if (desired !== currentPollingRateMs) {
+          clearInterval(pollingInterval);
+          pollingInterval = null;
+          startPolling();
+        }
+      }
+
       return;
     }
 
     if (event === 'sendToPlugin') {
       if (message.payload?.type === 'saveSettings') {
-        const resolvedAction = getResolvedAction(context, action);
         const merged = normalizeSettings({
           ...globalPluginSettings,
           ...(message.payload?.settings || {}),
         });
 
-        globalPluginSettings = merged;
-        storeSettingsForContext(context, merged, resolvedAction);
+        storeSettingsForContext(context, merged);
         delete lastSentImages[context];
+
+        const resolvedAction = getResolvedAction(context, action);
 
         if (resolvedAction === ACTIONS.audio) {
           await updateAudioImmediately(context);
@@ -894,11 +1109,16 @@ ws.on('message', async (data) => {
           await updatePingImmediately(context);
         } else if (resolvedAction === ACTIONS.timer) {
           updateTimerUI(context);
-        } else if (resolvedAction === ACTIONS.disk) {
-          updateDiskUI(context);
         }
 
-        restartPollingIfNeeded();
+        if (pollingInterval) {
+          const desired = (getPluginWideSettings().refreshRate || 3) * 1000;
+          if (desired !== currentPollingRateMs) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+            startPolling();
+          }
+        }
       }
       return;
     }
@@ -906,11 +1126,10 @@ ws.on('message', async (data) => {
     if (event === 'willDisappear') {
       delete activeContexts[context];
       delete activeTimers[context];
-      delete contextSettings[context];
       delete lastSentImages[context];
+      delete contextSettings[context];
       delete pingStates[context];
       clearTransientTimer(context);
-      clearRenderRetries(context);
 
       if (Object.keys(activeContexts).length === 0) {
         cleanupRuntime();
@@ -922,24 +1141,24 @@ ws.on('message', async (data) => {
     if (event === 'dialRotate') {
       const ticks = message.payload?.ticks || 0;
       const resolvedAction = getResolvedAction(context, action);
-      const pluginSettings = getPluginWideSettings();
+      const settings = getPluginWideSettings();
 
       if (resolvedAction === ACTIONS.audio) {
-        await adjustVolume(ticks, pluginSettings.volumeStep);
+        await adjustVolume(ticks, settings.volumeStep);
         await updateAudioImmediately(context);
       }
 
       if (resolvedAction === ACTIONS.timer) {
         const timer = activeTimers[context];
         if (timer && (timer.state === 'stopped' || timer.state === 'paused')) {
-          timer.total = Math.max(0, timer.total + (ticks * pluginSettings.timerStep * 60));
+          timer.total = Math.max(0, timer.total + (ticks * settings.timerStep * 60));
           timer.remaining = timer.total;
           updateTimerUI(context);
         }
       }
 
       if (resolvedAction === ACTIONS.monbright) {
-        await setMonitorBrightness(monitorBrightness + (ticks * pluginSettings.brightnessStep));
+        await setMonitorBrightness(monitorBrightness + (ticks * settings.brightnessStep));
         updateBrightnessUI(context);
       }
 
@@ -1037,7 +1256,7 @@ async function pollOnce() {
       let cpuData = {};
       let cpuTemp = {};
       let memData = {};
-      let diskSummary = getDiskSummary(false);
+      let diskData = [];
       let audioData = { available: false, vol: 0, muted: false };
       let procData = procCache.data;
 
@@ -1061,9 +1280,7 @@ async function pollOnce() {
       }
 
       if (needsDisk) {
-        promises.push(Promise.resolve().then(() => {
-          diskSummary = getDiskSummary(false);
-        }));
+        promises.push(si.fsSize().then((data) => { diskData = data; }).catch((error) => warnOnce('disk-failed', `disk read failed: ${error.message}`)));
       }
 
       if (needsAudio) {
@@ -1096,7 +1313,7 @@ async function pollOnce() {
 
       for (const context of Object.keys(activeContexts)) {
         const { action } = activeContexts[context];
-        const settings = getSettingsForContext(context, action);
+        const settings = getSettingsForContext(context);
 
         if (transientImageTimers[context]) {
           continue;
@@ -1132,7 +1349,7 @@ async function pollOnce() {
           } else {
             const load = Math.round(cpuData.currentLoad || 0);
             const temp = Math.round(cpuTemp.main || 0);
-            const wattsText = cpuPower.available ? `${Math.max(0, Math.round(cpuPower.watts))}W` : 'NO PWR';
+            const wattsText = cpuPower.available ? `${cpuPower.watts}W` : 'NO PWR';
             image = generateButtonImage('💻', 'CPU', `${load}%`, `${wattsText} | ${temp}°C`, load);
           }
         } else if (action === ACTIONS.gpu) {
@@ -1171,10 +1388,29 @@ async function pollOnce() {
             image = generateButtonImage('🌐', 'NET', `↓${download} ↑${upload}`, ifaceLabel, -1);
           }
         } else if (action === ACTIONS.disk) {
-          if (!diskSummary.available) {
+          const uniqueDisks = {};
+
+          for (const disk of diskData) {
+            if (!disk.fs || !disk.fs.startsWith('/dev/')) continue;
+            if (disk.fs.includes('loop')) continue;
+            if (disk.mount && (disk.mount.includes('/snap/') || disk.mount.includes('/docker/'))) continue;
+            uniqueDisks[disk.fs] = disk;
+          }
+
+          let totalSize = 0;
+          let totalUsed = 0;
+
+          for (const disk of Object.values(uniqueDisks)) {
+            totalSize += disk.size || 0;
+            totalUsed += disk.used || 0;
+          }
+
+          if (!totalSize) {
             image = generateButtonImage('🖴', 'DISKS', '...', 'Loading...', -1);
           } else {
-            image = generateButtonImage('🖴', 'DISKS', `${Math.round(diskSummary.percent)}%`, `${Math.round(diskSummary.freeGB)} GB free`, diskSummary.percent);
+            const percent = (totalUsed / totalSize) * 100;
+            const freeGB = (totalSize - totalUsed) / (1024 ** 3);
+            image = generateButtonImage('🖴', 'DISKS', `${Math.round(percent)}%`, `${Math.round(freeGB)} GB free`, percent);
           }
         } else if (action === ACTIONS.ping) {
           const state = getPingState(context);
@@ -1218,7 +1454,7 @@ async function pollOnce() {
 }
 
 function startPolling() {
-  currentPollingRateMs = getEffectiveRefreshRateMs();
+  currentPollingRateMs = clamp(Number.parseInt(getPluginWideSettings().refreshRate, 10) || 3, 1, 10) * 1000;
   void pollOnce();
   pollingInterval = setInterval(() => {
     void pollOnce();
