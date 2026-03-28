@@ -9,8 +9,11 @@
     timerStep: $('timerStep'),
     topMode: $('topMode'),
     refreshRate: $('refreshRate'),
+    pressAction: $('pressAction'),
+    pressCommand: $('pressCommand'),
   };
 
+  const pressCommandWrap = $('pressCommandWrap');
   const saveButton = $('saveButton');
   const statusText = $('statusText');
 
@@ -27,10 +30,16 @@
     timerStep: 1,
     topMode: 'grouped',
     refreshRate: 3,
+    pressAction: 'default',
+    pressCommand: '',
   });
 
   function setStatus(text) {
     statusText.textContent = text;
+  }
+
+  function updatePressCommandVisibility() {
+    pressCommandWrap.classList.toggle('hidden', fields.pressAction.value !== 'command');
   }
 
   function normalizeSettings(settings = {}) {
@@ -65,6 +74,14 @@
     const refresh = Number.parseInt(settings.refreshRate, 10);
     normalized.refreshRate = [1, 3, 5, 10].includes(refresh) ? refresh : DEFAULT_SETTINGS.refreshRate;
 
+    if (settings.pressAction === 'command' || settings.pressAction === 'default') {
+      normalized.pressAction = settings.pressAction;
+    }
+
+    if (typeof settings.pressCommand === 'string') {
+      normalized.pressCommand = settings.pressCommand.trim();
+    }
+
     return normalized;
   }
 
@@ -78,6 +95,10 @@
     fields.timerStep.value = String(normalized.timerStep);
     fields.topMode.value = normalized.topMode;
     fields.refreshRate.value = String(normalized.refreshRate);
+    fields.pressAction.value = normalized.pressAction;
+    fields.pressCommand.value = normalized.pressCommand;
+
+    updatePressCommandVisibility();
   }
 
   function collectSettings() {
@@ -89,6 +110,8 @@
       timerStep: fields.timerStep.value,
       topMode: fields.topMode.value,
       refreshRate: fields.refreshRate.value,
+      pressAction: fields.pressAction.value,
+      pressCommand: fields.pressCommand.value,
     });
   }
 
@@ -101,7 +124,7 @@
   }
 
   function extractIncomingSettings(payload = {}) {
-    const knownKeys = ['pingHost', 'networkInterface', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate'];
+    const knownKeys = ['pingHost', 'networkInterface', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
 
     function visit(value, depth = 0) {
       if (!value || typeof value !== 'object' || depth > 6) {
@@ -238,6 +261,7 @@
   };
 
   saveButton.addEventListener('click', saveSettings);
+  fields.pressAction.addEventListener('change', updatePressCommandVisibility);
   applySettings({});
   setStatus('Waiting for OpenDeck');
 })();

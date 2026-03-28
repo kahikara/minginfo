@@ -20,6 +20,21 @@
           </section>
 
           <section class="card">
+            <label for="pressAction">On press</label>
+            <select id="pressAction">
+              <option value="default">Default action</option>
+              <option value="command">Run command</option>
+            </select>
+
+            <div id="pressCommandWrap" class="stack hidden">
+              <label for="pressCommand">Command</label>
+              <input id="pressCommand" type="text" placeholder="systemctl --user restart my-monitor.service">
+            </div>
+
+            <p class="hint">Optional custom press action for this button or encoder press.</p>
+          </section>
+
+          <section class="card">
             <label for="networkInterface">Network interface override</label>
             <input id="networkInterface" type="text" placeholder="auto">
             <p class="hint">Leave empty for automatic detection.</p>

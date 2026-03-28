@@ -145,8 +145,89 @@ async function openActionTool(action, context) {
   return true;
 }
 
+function isCustomPressEnabled(settings = {}) {
+  return settings.pressAction === 'command';
+}
+
+function createPressFeedbackImage(context, icon, title, valueText, detailText, color = 'rgb(74, 222, 128)') {
+  if (state.activeContexts[context]?.isEncoder) {
+    return generateDialImage(icon, title, valueText, -1, color);
+  }
+
+  return generateButtonImage(icon, title, valueText, detailText, -1);
+}
+
+async function refreshActionAfterPress(context, resolvedAction) {
+  if (!state.activeContexts[context]) return;
+
+  transport.invalidateContext(context);
+
+  if (resolvedAction === ACTIONS.audio) {
+    await updateAudioImmediately(context);
+    return;
+  }
+
+  if (resolvedAction === ACTIONS.monbright) {
+    updateBrightnessUI(context);
+    return;
+  }
+
+  if (resolvedAction === ACTIONS.timer) {
+    updateTimerUI(context);
+    return;
+  }
+
+  if (resolvedAction === ACTIONS.ping) {
+    await updatePingImmediately(context);
+    return;
+  }
+
+  await pollOnce();
+}
+
+async function runCustomPressCommand(context, settings, resolvedAction) {
+  const command = String(settings.pressCommand || '').trim();
+
+  if (!command) {
+    transport.showTransientImage(
+      context,
+      createPressFeedbackImage(context, '⌘', 'COMMAND', 'NO CMD', 'Set command', 'rgb(239, 68, 68)'),
+      1400
+    );
+    return false;
+  }
+
+  transport.showTransientImage(
+    context,
+    createPressFeedbackImage(context, '⌘', 'COMMAND', 'RUN', 'Please wait', 'rgb(250, 204, 21)'),
+    900
+  );
+
+  const result = await runCommand(command, 10000);
+
+  if (result.error) {
+    transport.showTransientImage(
+      context,
+      createPressFeedbackImage(context, '⌘', 'COMMAND', 'FAIL', 'Check log', 'rgb(239, 68, 68)'),
+      1600
+    );
+    return false;
+  }
+
+  transport.showTransientImage(
+    context,
+    createPressFeedbackImage(context, '⌘', 'COMMAND', 'OK', 'Done', 'rgb(74, 222, 128)'),
+    700
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  transport.clearTransientTimer(context);
+  await refreshActionAfterPress(context, resolvedAction);
+  return true;
+}
+
 function extractIncomingSettings(payload = {}) {
-  const knownKeys = ['pingHost', 'networkInterface', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate'];
+  const knownKeys = ['pingHost', 'networkInterface', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
 
   function visit(value, depth = 0) {
     if (!value || typeof value !== 'object' || depth > 6) {
@@ -625,6 +706,12 @@ async function handleMessage(data) {
 
     if (event === 'dialDown' || event === 'keyDown') {
       const resolvedAction = getResolvedAction(context, action);
+      const settings = getSettingsForContext(context);
+
+      if (isCustomPressEnabled(settings)) {
+        await runCustomPressCommand(context, settings, resolvedAction);
+        return;
+      }
 
       if (!state.activeContexts[context]?.isEncoder) {
         if (resolvedAction === ACTIONS.cpu || resolvedAction === ACTIONS.gpu) {

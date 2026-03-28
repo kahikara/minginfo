@@ -69,6 +69,15 @@ h1 {
   gap: 8px;
 }
 
+.stack {
+  display: grid;
+  gap: 6px;
+}
+
+.hidden {
+  display: none;
+}
+
 label {
   font-size: 12px;
   font-weight: 700;

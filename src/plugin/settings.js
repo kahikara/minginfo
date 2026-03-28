@@ -38,6 +38,14 @@ function normalizeSettings(settings = {}) {
   const refresh = Number.parseInt(settings.refreshRate, 10);
   normalized.refreshRate = [1, 3, 5, 10].includes(refresh) ? refresh : DEFAULT_SETTINGS.refreshRate;
 
+  if (settings.pressAction === 'command' || settings.pressAction === 'default') {
+    normalized.pressAction = settings.pressAction;
+  }
+
+  if (typeof settings.pressCommand === 'string') {
+    normalized.pressCommand = settings.pressCommand.trim();
+  }
+
   return normalized;
 }
 

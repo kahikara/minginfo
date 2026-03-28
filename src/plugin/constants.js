@@ -23,6 +23,8 @@ const DEFAULT_SETTINGS = Object.freeze({
   timerStep: 1,
   topMode: 'grouped',
   refreshRate: 3,
+  pressAction: 'default',
+  pressCommand: '',
 });
 
 const POLL_INTERVAL_MS = 2000;
