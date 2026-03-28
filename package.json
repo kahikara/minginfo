@@ -1,6 +1,6 @@
 {
   "name": "com.kahikara.opendeck-redline.sdplugin",
-  "version": "1.2.0",
+  "version": "1.0.0",
   "description": "An OpenDeck plugin for AMD focused Linux monitoring",
   "main": "index.js",
   "scripts": {

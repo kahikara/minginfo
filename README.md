@@ -14,7 +14,7 @@
 
 ## Installation
 
-1. Download the latest `redline-monitor-v1.1.0.zip` from the Releases page of this repository
+1. Download the latest release ZIP from the Releases page of this repository
 2. Open **OpenDeck**
 3. Choose **Import Plugin**
 4. Select the ZIP file
