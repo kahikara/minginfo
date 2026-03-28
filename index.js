@@ -198,6 +198,71 @@ function getResolvedAction(context, fallbackAction = '') {
   return activeContexts[context]?.action || fallbackAction || '';
 }
 
+function isEncoderAction(action) {
+  return action === ACTIONS.audio || action === ACTIONS.timer || action === ACTIONS.monbright;
+}
+
+function ensureContextRegistered(context, action, controller = '') {
+  if (!context || !action) return '';
+
+  const isEncoder = controller === 'Encoder' || isEncoderAction(action);
+
+  if (!activeContexts[context]) {
+    activeContexts[context] = {
+      action,
+      isEncoder,
+    };
+  } else {
+    activeContexts[context].action = activeContexts[context].action || action;
+    if (isEncoder) {
+      activeContexts[context].isEncoder = true;
+    }
+  }
+
+  if (action === ACTIONS.timer && !activeTimers[context]) {
+    activeTimers[context] = { total: 0, remaining: 0, state: 'stopped' };
+  }
+
+  return activeContexts[context].action;
+}
+
+function scheduleImmediateRender(context, action) {
+  if (!context || !action) return;
+
+  if (action === ACTIONS.audio) {
+    sendUpdateIfChanged(context, generateDialImage('🔊', 'VOLUME', '...', 0, 'rgb(74, 222, 128)'));
+    void updateAudioImmediately(context);
+    return;
+  }
+
+  if (action === ACTIONS.timer) {
+    if (!activeTimers[context]) {
+      activeTimers[context] = { total: 0, remaining: 0, state: 'stopped' };
+    }
+    updateTimerUI(context);
+    return;
+  }
+
+  if (action === ACTIONS.monbright) {
+    sendUpdateIfChanged(context, generateDialImage('☀️', 'MONITOR', '...', 50, 'rgb(250, 204, 21)'));
+    void refreshMonitorBrightness(false).then(() => {
+      if (activeContexts[context]) {
+        updateBrightnessUI(context);
+      }
+    });
+    return;
+  }
+
+  if (action === ACTIONS.disk) {
+    updateDiskUI(context);
+    void refreshDiskSummary().then(() => {
+      if (activeContexts[context]) {
+        updateDiskUI(context);
+      }
+    });
+  }
+}
+
 function escapeXml(value = '') {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -1182,50 +1247,23 @@ ws.on('message', async (data) => {
   const { event, action, context } = message;
 
   try {
-    if (event === 'willAppear') {
-      activeContexts[context] = {
-        action,
-        isEncoder: message.payload?.controller === 'Encoder',
-      };
+    const resolvedActionFromContext = ensureContextRegistered(context, action, message.payload?.controller);
 
-      storeSettingsForContext(context, message.payload?.settings || {});
-
-      if (action === ACTIONS.timer && !activeTimers[context]) {
-        activeTimers[context] = { total: 0, remaining: 0, state: 'stopped' };
-      }
-
-      if (action === ACTIONS.monbright) {
-        await refreshMonitorBrightness(true);
-        updateBrightnessUI(context);
-      }
-
-      if (action === ACTIONS.audio) {
-        await updateAudioImmediately(context);
-      }
-
-      if (action === ACTIONS.timer) {
-        updateTimerUI(context);
-      }
-
-      if (action === ACTIONS.disk) {
-        updateDiskUI(context);
-        void refreshDiskSummary().then(() => {
-          if (activeContexts[context]) {
-            updateDiskUI(context);
-          }
-        });
-      }
-
+    if (Object.keys(activeContexts).length > 0) {
       if (!pollingInterval) startPolling();
       if (!timerInterval) startTimerLoop();
+    }
+    if (event === 'willAppear') {
+      const resolvedAction = ensureContextRegistered(context, action, message.payload?.controller);
+      storeSettingsForContext(context, message.payload?.settings || {});
+      scheduleImmediateRender(context, resolvedAction);
       return;
     }
 
     if (event === 'didReceiveSettings') {
+      const resolvedAction = ensureContextRegistered(context, getResolvedAction(context, action), message.payload?.controller);
       storeSettingsForContext(context, message.payload?.settings || {});
       delete lastSentImages[context];
-
-      const resolvedAction = getResolvedAction(context, action);
 
       if (resolvedAction === ACTIONS.audio) {
         await updateAudioImmediately(context);
@@ -1244,10 +1282,9 @@ ws.on('message', async (data) => {
 
     if (event === 'sendToPlugin') {
       if (message.payload?.type === 'saveSettings') {
+        const resolvedAction = ensureContextRegistered(context, getResolvedAction(context, action), message.payload?.controller);
         storeSettingsForContext(context, message.payload?.settings || {});
         delete lastSentImages[context];
-
-        const resolvedAction = getResolvedAction(context, action);
 
         if (resolvedAction === ACTIONS.audio) {
           await updateAudioImmediately(context);
@@ -1280,15 +1317,16 @@ ws.on('message', async (data) => {
     }
 
     if (event === 'dialRotate') {
+      const resolvedAction = ensureContextRegistered(context, getResolvedAction(context, action), message.payload?.controller);
       const ticks = message.payload?.ticks || 0;
       const settings = getSettingsForContext(context);
 
-      if (action === ACTIONS.audio) {
+      if (resolvedAction === ACTIONS.audio) {
         await adjustVolume(ticks, settings.volumeStep);
         await updateAudioImmediately(context);
       }
 
-      if (action === ACTIONS.timer) {
+      if (resolvedAction === ACTIONS.timer) {
         const timer = activeTimers[context];
         if (timer && (timer.state === 'stopped' || timer.state === 'paused')) {
           timer.total = Math.max(0, timer.total + (ticks * settings.timerStep * 60));
@@ -1306,22 +1344,24 @@ ws.on('message', async (data) => {
     }
 
     if (event === 'dialDown' || event === 'keyDown') {
+      const resolvedAction = ensureContextRegistered(context, getResolvedAction(context, action), message.payload?.controller);
+
       if (!activeContexts[context]?.isEncoder) {
-        if (action === ACTIONS.cpu || action === ACTIONS.gpu) {
-          await openActionTool(action, context);
+        if (resolvedAction === ACTIONS.cpu || resolvedAction === ACTIONS.gpu) {
+          await openActionTool(resolvedAction, context);
         }
 
-        if (action === ACTIONS.ping) {
+        if (resolvedAction === ACTIONS.ping) {
           await updatePingImmediately(context);
         }
       }
 
-      if (action === ACTIONS.audio) {
+      if (resolvedAction === ACTIONS.audio) {
         await toggleMute();
         await updateAudioImmediately(context);
       }
 
-      if (action === ACTIONS.timer) {
+      if (resolvedAction === ACTIONS.timer) {
         const timer = activeTimers[context];
         if (timer) {
           if (timer.state === 'ringing') {
@@ -1339,7 +1379,7 @@ ws.on('message', async (data) => {
         }
       }
 
-      if (action === ACTIONS.monbright) {
+      if (resolvedAction === ACTIONS.monbright) {
         await setMonitorBrightness(50);
         updateBrightnessUI(context);
       }
