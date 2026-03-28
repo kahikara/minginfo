@@ -50,6 +50,7 @@ const POLL_INTERVAL_MS = 2000;
 const TOP_REFRESH_MS = 4000;
 const NETWORK_CACHE_MS = 10000;
 const BRIGHTNESS_REFRESH_MS = 15000;
+const DISK_CACHE_MS = 30000;
 
 const NETWORK_EXCLUDED_PREFIXES = ['lo', 'docker', 'br-', 'veth', 'virbr', 'vmnet', 'vboxnet', 'tailscale', 'zt', 'tun', 'tap', 'wg'];
 const NETWORK_PREFERRED_PREFIXES = ['en', 'eth', 'wl', 'wlan', 'ww', 'usb'];
@@ -84,6 +85,10 @@ let cpuPowerSampleCache = {
 };
 let procCache = { timestamp: 0, data: { list: [] } };
 let networkCache = { timestamp: 0, iface: null };
+let diskCache = {
+  timestamp: 0,
+  summary: { available: false, percent: 0, freeGB: 0 },
+};
 
 const toolCache = new Map();
 const warnedKeys = new Set();
@@ -387,9 +392,9 @@ function generateButtonImage(icon, title, line1, line2, percent = -1) {
   const safeLine1 = String(line1 || '');
   const safeLine2 = String(line2 || '');
 
-  const titleSize = getAdaptiveFontSize(safeTitle, 20, 16, 8, 1);
-  const line1Size = getAdaptiveFontSize(safeLine1, 38, 22, 5, 2);
-  const line2Size = getAdaptiveFontSize(safeLine2, 18, 12, 16, 1);
+  const titleSize = getAdaptiveFontSize(safeTitle, 18, 14, 8, 1);
+  const line1Size = getAdaptiveFontSize(safeLine1, 40, 24, 5, 2);
+  const line2Size = getAdaptiveFontSize(safeLine2, 17, 12, 16, 1);
 
   let barHtml = '';
 
@@ -404,10 +409,10 @@ function generateButtonImage(icon, title, line1, line2, percent = -1) {
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#18181b"/>
-    <text x="28" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="22" text-anchor="middle">${escapeXml(icon)}</text>
-    <text x="44" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="start">${escapeXml(safeTitle)}</text>
-    <text x="72" y="78" fill="#ffffff" font-family="sans-serif" font-size="${line1Size}" font-weight="bold" text-anchor="middle">${escapeXml(safeLine1)}</text>
-    <text x="72" y="102" fill="#a1a1aa" font-family="sans-serif" font-size="${line2Size}" text-anchor="middle">${escapeXml(safeLine2)}</text>
+    <text x="52" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="20" text-anchor="end">${escapeXml(icon)}</text>
+    <text x="56" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="start">${escapeXml(safeTitle)}</text>
+    <text x="72" y="74" fill="#ffffff" font-family="sans-serif" font-size="${line1Size}" font-weight="bold" text-anchor="middle">${escapeXml(safeLine1)}</text>
+    <text x="72" y="100" fill="#a1a1aa" font-family="sans-serif" font-size="${line2Size}" text-anchor="middle">${escapeXml(safeLine2)}</text>
     ${barHtml}
   </svg>`;
 
@@ -431,9 +436,9 @@ function generateDialImage(icon, title, valueText, percent = -1, barColor = 'rgb
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#18181b"/>
-    <text x="28" y="32" fill="#a1a1aa" font-family="sans-serif" font-size="22" text-anchor="middle">${escapeXml(icon)}</text>
-    <text x="44" y="32" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="start">${escapeXml(safeTitle)}</text>
-    <text x="72" y="88" fill="#ffffff" font-family="sans-serif" font-size="${valueSize}" font-weight="bold" text-anchor="middle">${escapeXml(safeValue)}</text>
+    <text x="52" y="32" fill="#a1a1aa" font-family="sans-serif" font-size="20" text-anchor="end">${escapeXml(icon)}</text>
+    <text x="56" y="32" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="start">${escapeXml(safeTitle)}</text>
+    <text x="72" y="86" fill="#ffffff" font-family="sans-serif" font-size="${valueSize}" font-weight="bold" text-anchor="middle">${escapeXml(safeValue)}</text>
     ${barHtml}
   </svg>`;
 
@@ -553,6 +558,23 @@ function findCpuPowerFile(force = false) {
     const hwmonRoot = '/sys/class/hwmon';
     const dirs = fs.readdirSync(hwmonRoot);
 
+    const nameRank = {
+      zenergy: 0,
+      zenpower: 1,
+      amd_energy: 2,
+    };
+
+    const fileRank = {
+      power1_average: 0,
+      power1_input: 1,
+      power_input: 2,
+      energy1_input: 3,
+      energy_input: 4,
+    };
+
+    let bestCandidate = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+
     for (const dir of dirs) {
       const fullPath = path.join(hwmonRoot, dir);
       const namePath = path.join(fullPath, 'name');
@@ -560,23 +582,23 @@ function findCpuPowerFile(force = false) {
       if (!fileExists(namePath)) continue;
 
       const name = readText(namePath);
-      if (!['zenpower', 'amd_energy', 'zenergy'].includes(name)) continue;
+      if (!(name in nameRank)) continue;
 
-      const candidates = [
-        'power1_average',
-        'power1_input',
-        'power_input',
-        'energy1_input',
-        'energy_input',
-      ];
-
-      for (const candidate of candidates) {
+      for (const candidate of Object.keys(fileRank)) {
         const candidatePath = path.join(fullPath, candidate);
-        if (fileExists(candidatePath)) {
-          cpuPowerFileCache = candidatePath;
-          return cpuPowerFileCache;
+        if (!fileExists(candidatePath)) continue;
+
+        const score = (nameRank[name] * 10) + fileRank[candidate];
+        if (score < bestScore) {
+          bestScore = score;
+          bestCandidate = candidatePath;
         }
       }
+    }
+
+    if (bestCandidate) {
+      cpuPowerFileCache = bestCandidate;
+      return cpuPowerFileCache;
     }
   } catch (error) {
     warnOnce('cpu-power-scan-failed', `cpu power scan failed: ${error.message}`);
@@ -669,6 +691,59 @@ function getCpuPower() {
     warnOnce('cpu-power-read-failed', `cpu power read failed: ${error.message}`);
     return { available: false, watts: 0 };
   }
+}
+
+function buildDiskSummary(fsEntries) {
+  const uniqueDisks = {};
+
+  for (const disk of fsEntries) {
+    if (!disk.fs || !disk.fs.startsWith('/dev/')) continue;
+    if (disk.fs.includes('loop')) continue;
+    if (disk.mount && (disk.mount.includes('/snap/') || disk.mount.includes('/docker/'))) continue;
+    uniqueDisks[disk.fs] = disk;
+  }
+
+  let totalSize = 0;
+  let totalUsed = 0;
+
+  for (const disk of Object.values(uniqueDisks)) {
+    totalSize += disk.size || 0;
+    totalUsed += disk.used || 0;
+  }
+
+  if (!totalSize) {
+    return { available: false, percent: 0, freeGB: 0 };
+  }
+
+  return {
+    available: true,
+    percent: (totalUsed / totalSize) * 100,
+    freeGB: (totalSize - totalUsed) / (1024 ** 3),
+  };
+}
+
+async function getDiskSummary(force = false) {
+  const now = Date.now();
+
+  if (!force && (now - diskCache.timestamp) < DISK_CACHE_MS) {
+    return diskCache.summary;
+  }
+
+  try {
+    const fsEntries = await si.fsSize();
+    diskCache = {
+      timestamp: now,
+      summary: buildDiskSummary(fsEntries),
+    };
+  } catch (error) {
+    warnOnce('disk-failed', `disk read failed: ${error.message}`);
+    diskCache = {
+      timestamp: now,
+      summary: { available: false, percent: 0, freeGB: 0 },
+    };
+  }
+
+  return diskCache.summary;
 }
 
 async function detectActiveInterface(force = false) {
@@ -1182,7 +1257,7 @@ function startPolling() {
       let cpuData = {};
       let cpuTemp = {};
       let memData = {};
-      let diskData = [];
+      let diskSummary = { available: false, percent: 0, freeGB: 0 };
       let audioData = { available: false, vol: 0, muted: false };
       let procData = procCache.data;
 
@@ -1206,7 +1281,7 @@ function startPolling() {
       }
 
       if (needsDisk) {
-        promises.push(si.fsSize().then((data) => { diskData = data; }).catch((error) => warnOnce('disk-failed', `disk read failed: ${error.message}`)));
+        promises.push(getDiskSummary(false).then((data) => { diskSummary = data; }));
       }
 
       if (needsAudio) {
@@ -1313,29 +1388,10 @@ function startPolling() {
             image = generateButtonImage('🌐', 'NET', `↓ ${download}`, `↑ ${upload} Mb/s`, -1);
           }
         } else if (action === ACTIONS.disk) {
-          const uniqueDisks = {};
-
-          for (const disk of diskData) {
-            if (!disk.fs || !disk.fs.startsWith('/dev/')) continue;
-            if (disk.fs.includes('loop')) continue;
-            if (disk.mount && (disk.mount.includes('/snap/') || disk.mount.includes('/docker/'))) continue;
-            uniqueDisks[disk.fs] = disk;
-          }
-
-          let totalSize = 0;
-          let totalUsed = 0;
-
-          for (const disk of Object.values(uniqueDisks)) {
-            totalSize += disk.size || 0;
-            totalUsed += disk.used || 0;
-          }
-
-          if (!totalSize) {
+          if (!diskSummary.available) {
             image = unavailableButton('🖴', 'DISKS', 'NO DATA');
           } else {
-            const percent = (totalUsed / totalSize) * 100;
-            const freeGB = (totalSize - totalUsed) / (1024 ** 3);
-            image = generateButtonImage('🖴', 'DISKS', `${Math.round(percent)}%`, `${Math.round(freeGB)} GB free`, percent);
+            image = generateButtonImage('🖴', 'DISKS', `${Math.round(diskSummary.percent)}%`, `${Math.round(diskSummary.freeGB)} GB free`, diskSummary.percent);
           }
         } else if (action === ACTIONS.ping) {
           const state = getPingState(context);
