@@ -194,6 +194,10 @@ function getPingState(context) {
   return pingStates[context];
 }
 
+function getResolvedAction(context, fallbackAction = '') {
+  return activeContexts[context]?.action || fallbackAction || '';
+}
+
 function escapeXml(value = '') {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -1199,6 +1203,10 @@ ws.on('message', async (data) => {
         await updateAudioImmediately(context);
       }
 
+      if (action === ACTIONS.timer) {
+        updateTimerUI(context);
+      }
+
       if (action === ACTIONS.disk) {
         updateDiskUI(context);
         void refreshDiskSummary().then(() => {
@@ -1217,13 +1225,17 @@ ws.on('message', async (data) => {
       storeSettingsForContext(context, message.payload?.settings || {});
       delete lastSentImages[context];
 
-      if (action === ACTIONS.audio) {
+      const resolvedAction = getResolvedAction(context, action);
+
+      if (resolvedAction === ACTIONS.audio) {
         await updateAudioImmediately(context);
-      } else if (action === ACTIONS.monbright) {
+      } else if (resolvedAction === ACTIONS.monbright) {
         updateBrightnessUI(context);
-      } else if (action === ACTIONS.ping) {
+      } else if (resolvedAction === ACTIONS.ping) {
         await updatePingImmediately(context);
-      } else if (action === ACTIONS.disk) {
+      } else if (resolvedAction === ACTIONS.timer) {
+        updateTimerUI(context);
+      } else if (resolvedAction === ACTIONS.disk) {
         updateDiskUI(context);
       }
 
@@ -1234,6 +1246,20 @@ ws.on('message', async (data) => {
       if (message.payload?.type === 'saveSettings') {
         storeSettingsForContext(context, message.payload?.settings || {});
         delete lastSentImages[context];
+
+        const resolvedAction = getResolvedAction(context, action);
+
+        if (resolvedAction === ACTIONS.audio) {
+          await updateAudioImmediately(context);
+        } else if (resolvedAction === ACTIONS.monbright) {
+          updateBrightnessUI(context);
+        } else if (resolvedAction === ACTIONS.ping) {
+          await updatePingImmediately(context);
+        } else if (resolvedAction === ACTIONS.timer) {
+          updateTimerUI(context);
+        } else if (resolvedAction === ACTIONS.disk) {
+          updateDiskUI(context);
+        }
       }
       return;
     }

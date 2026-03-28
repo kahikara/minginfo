@@ -16,6 +16,7 @@
   let websocket = null;
   let uuid = null;
   let actionInfo = null;
+  let actionContext = null;
 
   const DEFAULT_SETTINGS = Object.freeze({
     pingHost: '1.1.1.1',
@@ -95,7 +96,7 @@
   function saveSettings() {
     const settings = collectSettings();
 
-    if (!uuid) {
+    if (!actionContext) {
       console.log('[Redline PI] local save', settings);
       setStatus('Local preview only');
       return;
@@ -103,7 +104,7 @@
 
     send({
       event: 'setSettings',
-      context: uuid,
+      context: actionContext,
       payload: settings,
     });
 
@@ -111,7 +112,7 @@
       send({
         event: 'sendToPlugin',
         action: actionInfo.action,
-        context: uuid,
+        context: actionContext,
         payload: {
           type: 'saveSettings',
           settings,
@@ -123,11 +124,11 @@
   }
 
   function requestSettings() {
-    if (!uuid) return;
+    if (!actionContext) return;
 
     send({
       event: 'getSettings',
-      context: uuid,
+      context: actionContext,
     });
   }
 
@@ -140,6 +141,8 @@
       console.error('[Redline PI] Failed to parse action info', error);
       actionInfo = null;
     }
+
+    actionContext = actionInfo?.context || null;
 
     applySettings(actionInfo?.payload?.settings || {});
     websocket = new WebSocket(`ws://127.0.0.1:${inPort}`);
@@ -164,12 +167,12 @@
         return;
       }
 
-      if (message.event === 'didReceiveSettings' && message.context === uuid) {
+      if (message.event === 'didReceiveSettings' && message.context === actionContext) {
         applySettings(message.payload?.settings || {});
         setStatus('Settings loaded');
       }
 
-      if (message.event === 'sendToPropertyInspector' && message.context === uuid) {
+      if (message.event === 'sendToPropertyInspector' && message.context === actionContext) {
         if (message.payload?.settings) {
           applySettings(message.payload.settings);
           setStatus('Settings synced');
