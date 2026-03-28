@@ -62,6 +62,7 @@ const ws = new WebSocket(`ws://127.0.0.1:${port}`);
 
 const activeContexts = Object.create(null);
 const activeTimers = Object.create(null);
+const lastSentImages = Object.create(null);
 const transientImageTimers = Object.create(null);
 const renderRetryTimers = Object.create(null);
 const contextSettings = Object.create(null);
@@ -309,6 +310,7 @@ function safeSend(payload) {
 
 function sendUpdateIfChanged(context, image) {
   if (!image) return;
+  if (lastSentImages[context] === image) return;
 
   safeSend({
     event: 'setImage',
@@ -318,6 +320,23 @@ function sendUpdateIfChanged(context, image) {
       target: 0,
     },
   });
+
+  lastSentImages[context] = image;
+}
+
+function forceSendImage(context, image) {
+  if (!image) return;
+
+  safeSend({
+    event: 'setImage',
+    context,
+    payload: {
+      image,
+      target: 0,
+    },
+  });
+
+  lastSentImages[context] = image;
 }
 
 function clearTransientTimer(context) {
@@ -343,7 +362,7 @@ function queueRenderRetries(context, imageFactory, delays = [0, 250, 800, 1600])
   for (const delay of delays) {
     const timer = setTimeout(() => {
       if (!activeContexts[context]) return;
-      sendUpdateIfChanged(context, imageFactory());
+      forceSendImage(context, imageFactory());
     }, delay);
 
     renderRetryTimers[context].push(timer);
@@ -699,6 +718,7 @@ function primeActionUI(context, action) {
 function reprimeVisibleContexts() {
   for (const context of Object.keys(activeContexts)) {
     const action = activeContexts[context]?.action;
+    delete lastSentImages[context];
     if (action === ACTIONS.audio || action === ACTIONS.timer || action === ACTIONS.monbright || action === ACTIONS.disk) {
       primeActionUI(context, action);
     }
@@ -811,6 +831,7 @@ ws.on('message', async (data) => {
         isEncoder: message.payload?.controller === 'Encoder',
       };
 
+      delete lastSentImages[context];
       storeSettingsForContext(context, message.payload?.settings || {}, action);
 
       if (action === ACTIONS.timer && !activeTimers[context]) {
@@ -828,7 +849,14 @@ ws.on('message', async (data) => {
 
     if (event === 'didReceiveSettings') {
       const resolvedAction = getResolvedAction(context, action);
-      storeSettingsForContext(context, message.payload?.settings || {}, resolvedAction);
+      const merged = normalizeSettings({
+        ...globalPluginSettings,
+        ...(message.payload?.settings || {}),
+      });
+
+      globalPluginSettings = merged;
+      storeSettingsForContext(context, merged, resolvedAction);
+      delete lastSentImages[context];
 
       if (resolvedAction === ACTIONS.audio) {
         await updateAudioImmediately(context);
@@ -849,7 +877,14 @@ ws.on('message', async (data) => {
     if (event === 'sendToPlugin') {
       if (message.payload?.type === 'saveSettings') {
         const resolvedAction = getResolvedAction(context, action);
-        storeSettingsForContext(context, message.payload?.settings || {}, resolvedAction);
+        const merged = normalizeSettings({
+          ...globalPluginSettings,
+          ...(message.payload?.settings || {}),
+        });
+
+        globalPluginSettings = merged;
+        storeSettingsForContext(context, merged, resolvedAction);
+        delete lastSentImages[context];
 
         if (resolvedAction === ACTIONS.audio) {
           await updateAudioImmediately(context);
@@ -872,6 +907,7 @@ ws.on('message', async (data) => {
       delete activeContexts[context];
       delete activeTimers[context];
       delete contextSettings[context];
+      delete lastSentImages[context];
       delete pingStates[context];
       clearTransientTimer(context);
       clearRenderRetries(context);
@@ -990,10 +1026,7 @@ function startTimerLoop() {
   }, 1000);
 }
 
-function startPolling() {
-  currentPollingRateMs = getEffectiveRefreshRateMs();
-
-  pollingInterval = setInterval(async () => {
+async function pollOnce() {
     if (pollingInProgress || shuttingDown) return;
     pollingInProgress = true;
 
@@ -1182,6 +1215,13 @@ function startPolling() {
     } finally {
       pollingInProgress = false;
     }
+}
+
+function startPolling() {
+  currentPollingRateMs = getEffectiveRefreshRateMs();
+  void pollOnce();
+  pollingInterval = setInterval(() => {
+    void pollOnce();
   }, currentPollingRateMs);
 }
 
