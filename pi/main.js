@@ -101,20 +101,42 @@
   }
 
   function extractIncomingSettings(payload = {}) {
-    if (!payload || typeof payload !== 'object') {
+    const knownKeys = ['pingHost', 'networkInterface', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate'];
+
+    function visit(value, depth = 0) {
+      if (!value || typeof value !== 'object' || depth > 6) {
+        return {};
+      }
+
+      const direct = {};
+      for (const key of knownKeys) {
+        if (Object.prototype.hasOwnProperty.call(value, key)) {
+          direct[key] = value[key];
+        }
+      }
+
+      if (Object.keys(direct).length > 0) {
+        return direct;
+      }
+
+      if (value.settings && typeof value.settings === 'object') {
+        const nestedSettings = visit(value.settings, depth + 1);
+        if (Object.keys(nestedSettings).length > 0) {
+          return nestedSettings;
+        }
+      }
+
+      for (const nested of Object.values(value)) {
+        const result = visit(nested, depth + 1);
+        if (Object.keys(result).length > 0) {
+          return result;
+        }
+      }
+
       return {};
     }
 
-    if (payload.settings && typeof payload.settings === 'object') {
-      return payload.settings;
-    }
-
-    const knownKeys = ['pingHost', 'networkInterface', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate'];
-    if (knownKeys.some((key) => Object.prototype.hasOwnProperty.call(payload, key))) {
-      return payload;
-    }
-
-    return {};
+    return visit(payload);
   }
 
   function saveSettings() {

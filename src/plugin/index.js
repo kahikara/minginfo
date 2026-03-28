@@ -5,7 +5,7 @@ const state = require('./state');
 const { ACTIONS } = require('./constants');
 const { log, warn, clamp, runCommand, commandExists } = require('./utils');
 const { normalizeSettings, storeSettingsForContext, getSettingsForContext, getPluginWideSettings, getResolvedAction } = require('./settings');
-const { generateButtonImage, generateDialImage, unavailableButton, unavailableDial } = require('./renderer');
+const { generateButtonImage, generateDialImage, generateFooterButtonImage, unavailableButton, unavailableDial } = require('./renderer');
 const transport = require('./transport');
 
 const { getCpuPower } = require('./system/cpu');
@@ -146,20 +146,42 @@ async function openActionTool(action, context) {
 }
 
 function extractIncomingSettings(payload = {}) {
-  if (!payload || typeof payload !== 'object') {
+  const knownKeys = ['pingHost', 'networkInterface', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate'];
+
+  function visit(value, depth = 0) {
+    if (!value || typeof value !== 'object' || depth > 6) {
+      return {};
+    }
+
+    const direct = {};
+    for (const key of knownKeys) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) {
+        direct[key] = value[key];
+      }
+    }
+
+    if (Object.keys(direct).length > 0) {
+      return direct;
+    }
+
+    if (value.settings && typeof value.settings === 'object') {
+      const nestedSettings = visit(value.settings, depth + 1);
+      if (Object.keys(nestedSettings).length > 0) {
+        return nestedSettings;
+      }
+    }
+
+    for (const nested of Object.values(value)) {
+      const result = visit(nested, depth + 1);
+      if (Object.keys(result).length > 0) {
+        return result;
+      }
+    }
+
     return {};
   }
 
-  if (payload.settings && typeof payload.settings === 'object') {
-    return payload.settings;
-  }
-
-  const knownKeys = ['pingHost', 'networkInterface', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate'];
-  if (knownKeys.some((key) => Object.prototype.hasOwnProperty.call(payload, key))) {
-    return payload;
-  }
-
-  return {};
+  return visit(payload);
 }
 
 function restartPollingIfNeeded(force = false) {}
@@ -374,8 +396,8 @@ async function pollOnce() {
         } else {
           const download = (((netResult.data[0].rx_sec || 0) * 8) / 1000000).toFixed(1);
           const upload = (((netResult.data[0].tx_sec || 0) * 8) / 1000000).toFixed(1);
-          const ifaceLabel = (netResult.iface || 'NET').slice(0, 8).toUpperCase();
-          image = generateButtonImage('🌐', ifaceLabel, `↓${download}`, `↑${upload}`, -1);
+          const ifaceLabel = (netResult.iface || 'auto').slice(0, 14);
+          image = generateFooterButtonImage('🌐', 'NET', `↓${download}`, `↑${upload}`, ifaceLabel);
         }
       } else if (action === ACTIONS.disk) {
         if (!diskSummary.available) {

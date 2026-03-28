@@ -8,6 +8,7 @@ function getPingState(context) {
       lastPing: 0,
       failedPings: 0,
       lastPingTime: 0,
+      target: '',
     };
   }
 
@@ -17,6 +18,14 @@ function getPingState(context) {
 async function getPing(context, host, force = false) {
   const pingState = getPingState(context);
   const target = String(host || DEFAULT_SETTINGS.pingHost).trim() || DEFAULT_SETTINGS.pingHost;
+
+  if (pingState.target !== target) {
+    pingState.target = target;
+    pingState.lastPing = 0;
+    pingState.failedPings = 0;
+    pingState.lastPingTime = 0;
+  }
+
   const result = await runCommand(`ping -c 1 -W 2 ${shellEscape(target)}`, 4000);
 
   if (result.error || !result.stdout) {
