@@ -184,7 +184,15 @@ function extractIncomingSettings(payload = {}) {
   return visit(payload);
 }
 
-function restartPollingIfNeeded(force = false) {}
+function trackPromise(promises, label, work) {
+  promises.push(
+    Promise.resolve()
+      .then(work)
+      .catch((error) => {
+        warn(`${label} failed:`, error?.message || error);
+      })
+  );
+}
 
 function maybeRestartPolling(refreshChanged = false) {
   const desired = clamp(Number.parseInt(getPluginWideSettings().refreshRate, 10) || 3, 1, 10) * 1000;
@@ -282,40 +290,51 @@ async function pollOnce() {
     const promises = [];
 
     if (needsCpu) {
-      promises.push(si.currentLoad().then((data) => { cpuData = data; }));
-      promises.push(si.cpuTemperature().then((data) => { cpuTemp = data; }));
+      trackPromise(promises, 'si.currentLoad', async () => {
+        cpuData = await si.currentLoad();
+      });
+      trackPromise(promises, 'si.cpuTemperature', async () => {
+        cpuTemp = await si.cpuTemperature();
+      });
     }
 
     if (needsRam) {
-      promises.push(si.mem().then((data) => { memData = data; }));
+      trackPromise(promises, 'si.mem', async () => {
+        memData = await si.mem();
+      });
     }
 
     if (needsDisk) {
-      promises.push(si.fsSize().then((data) => { diskData = data; }));
+      trackPromise(promises, 'si.fsSize', async () => {
+        diskData = await si.fsSize();
+      });
     }
 
     if (needsAudio) {
-      promises.push(getAudio().then((data) => { audioData = data; }));
+      trackPromise(promises, 'getAudio', async () => {
+        audioData = await getAudio();
+      });
     }
 
     if (needsTop) {
       if ((Date.now() - state.procCache.timestamp) > 4000) {
-        promises.push(
-          si.processes().then((data) => {
-            state.procCache = { timestamp: Date.now(), data };
-            procData = data;
-          })
-        );
+        trackPromise(promises, 'si.processes', async () => {
+          const data = await si.processes();
+          state.procCache = { timestamp: Date.now(), data };
+          procData = data;
+        });
       } else {
         procData = state.procCache.data;
       }
     }
 
     if (needsBrightness) {
-      promises.push(refreshMonitorBrightness(false));
+      trackPromise(promises, 'refreshMonitorBrightness', async () => {
+        await refreshMonitorBrightness(false);
+      });
     }
 
-    await Promise.all(promises);
+    await Promise.allSettled(promises);
 
     const gpuStats = needsGpu ? getAmdGpuStats() : null;
     const cpuPower = needsCpu ? getCpuPower() : { available: false, watts: 0 };
