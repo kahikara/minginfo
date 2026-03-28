@@ -87,6 +87,7 @@ let cpuPowerSampleCache = {
   watts: 0,
 };
 let procCache = { timestamp: 0, data: { list: [] } };
+let topProcessCache = { name: '', cpu: 0, timestamp: 0 };
 let networkCache = { timestamp: 0, iface: null };
 
 const toolCache = new Map();
@@ -347,6 +348,7 @@ function isExcludedTopProcess(name) {
 }
 
 function getTopProcessSummary(procData, mode = 'grouped') {
+  const now = Date.now();
   const list = Array.isArray(procData?.list) ? procData.list : [];
   const filtered = [];
 
@@ -365,40 +367,63 @@ function getTopProcessSummary(procData, mode = 'grouped') {
     });
   }
 
-  if (filtered.length === 0) return null;
+  const cachedStillValid = () => {
+    if (topProcessCache.name && (now - topProcessCache.timestamp) <= 12000) {
+      return {
+        name: topProcessCache.name,
+        cpu: topProcessCache.cpu,
+      };
+    }
+    return null;
+  };
+
+  if (filtered.length === 0) return cachedStillValid();
+
+  let result = null;
 
   if (mode === 'raw') {
     const best = filtered.sort((a, b) => b.cpu - a.cpu)[0];
-    if (!best || best.cpu < 1) return null;
+    if (best && best.cpu >= 1) {
+      result = {
+        name: best.label,
+        cpu: clamp(Math.round(best.cpu > 100 ? best.cpu / coreCount : best.cpu), 0, 100),
+      };
+    }
+  } else {
+    const grouped = new Map();
 
-    return {
-      name: best.label,
-      cpu: clamp(Math.round(best.cpu > 100 ? best.cpu / coreCount : best.cpu), 0, 100),
-    };
-  }
+    for (const process of filtered) {
+      grouped.set(process.label, (grouped.get(process.label) || 0) + process.cpu);
+    }
 
-  const grouped = new Map();
+    let bestName = '';
+    let bestCpu = 0;
 
-  for (const process of filtered) {
-    grouped.set(process.label, (grouped.get(process.label) || 0) + process.cpu);
-  }
+    for (const [name, cpu] of grouped.entries()) {
+      if (cpu > bestCpu) {
+        bestName = name;
+        bestCpu = cpu;
+      }
+    }
 
-  let bestName = '';
-  let bestCpu = 0;
-
-  for (const [name, cpu] of grouped.entries()) {
-    if (cpu > bestCpu) {
-      bestName = name;
-      bestCpu = cpu;
+    if (bestCpu >= 1) {
+      result = {
+        name: bestName,
+        cpu: clamp(Math.round(bestCpu > 100 ? bestCpu / coreCount : bestCpu), 0, 100),
+      };
     }
   }
 
-  if (bestCpu < 1) return null;
+  if (result) {
+    topProcessCache = {
+      name: result.name,
+      cpu: result.cpu,
+      timestamp: now,
+    };
+    return result;
+  }
 
-  return {
-    name: bestName,
-    cpu: clamp(Math.round(bestCpu > 100 ? bestCpu / coreCount : bestCpu), 0, 100),
-  };
+  return cachedStillValid();
 }
 
 function generateButtonImage(icon, title, line1, line2, percent = -1) {
@@ -406,9 +431,9 @@ function generateButtonImage(icon, title, line1, line2, percent = -1) {
   const safeLine1 = String(line1 || '');
   const safeLine2 = String(line2 || '');
 
-  const titleSize = getAdaptiveFontSize(safeTitle, 20, 16, 8, 1);
-  const line1Size = getAdaptiveFontSize(safeLine1, 38, 22, 5, 2);
-  const line2Size = getAdaptiveFontSize(safeLine2, 18, 12, 16, 1);
+  const titleSize = getAdaptiveFontSize(safeTitle, 19, 15, 8, 1);
+  const line1Size = getAdaptiveFontSize(safeLine1, 35, 21, 5, 2);
+  const line2Size = getAdaptiveFontSize(safeLine2, 20, 13, 16, 1);
 
   let barHtml = '';
 
@@ -423,10 +448,10 @@ function generateButtonImage(icon, title, line1, line2, percent = -1) {
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#18181b"/>
-    <text x="28" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="22" text-anchor="middle">${escapeXml(icon)}</text>
-    <text x="44" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="start">${escapeXml(safeTitle)}</text>
-    <text x="72" y="78" fill="#ffffff" font-family="sans-serif" font-size="${line1Size}" font-weight="bold" text-anchor="middle">${escapeXml(safeLine1)}</text>
-    <text x="72" y="102" fill="#a1a1aa" font-family="sans-serif" font-size="${line2Size}" text-anchor="middle">${escapeXml(safeLine2)}</text>
+    <text x="60" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="21" text-anchor="end">${escapeXml(icon)}</text>
+    <text x="64" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="start">${escapeXml(safeTitle)}</text>
+    <text x="72" y="76" fill="#ffffff" font-family="sans-serif" font-size="${line1Size}" font-weight="bold" text-anchor="middle">${escapeXml(safeLine1)}</text>
+    <text x="72" y="104" fill="#a1a1aa" font-family="sans-serif" font-size="${line2Size}" text-anchor="middle">${escapeXml(safeLine2)}</text>
     ${barHtml}
   </svg>`;
 
@@ -438,7 +463,7 @@ function generateDialImage(icon, title, valueText, percent = -1, barColor = 'rgb
   const safeValue = String(valueText || '');
 
   const titleSize = getAdaptiveFontSize(safeTitle, 18, 14, 10, 1);
-  const valueSize = getAdaptiveFontSize(safeValue, 42, 24, 4, 2);
+  const valueSize = getAdaptiveFontSize(safeValue, 40, 24, 4, 2);
 
   let barHtml = '';
 
@@ -450,9 +475,9 @@ function generateDialImage(icon, title, valueText, percent = -1, barColor = 'rgb
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#18181b"/>
-    <text x="28" y="32" fill="#a1a1aa" font-family="sans-serif" font-size="22" text-anchor="middle">${escapeXml(icon)}</text>
-    <text x="44" y="32" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="start">${escapeXml(safeTitle)}</text>
-    <text x="72" y="88" fill="#ffffff" font-family="sans-serif" font-size="${valueSize}" font-weight="bold" text-anchor="middle">${escapeXml(safeValue)}</text>
+    <text x="60" y="32" fill="#a1a1aa" font-family="sans-serif" font-size="21" text-anchor="end">${escapeXml(icon)}</text>
+    <text x="64" y="32" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="start">${escapeXml(safeTitle)}</text>
+    <text x="72" y="86" fill="#ffffff" font-family="sans-serif" font-size="${valueSize}" font-weight="bold" text-anchor="middle">${escapeXml(safeValue)}</text>
     ${barHtml}
   </svg>`;
 
@@ -769,8 +794,7 @@ async function refreshMonitorBrightness(force = false) {
   lastBrightnessSync = now;
 
   if (!(await commandExists('ddcutil'))) {
-    monitorBrightnessAvailable = false;
-    return false;
+    return monitorBrightnessAvailable;
   }
 
   const result = await runCommand('ddcutil getvcp 10 --brief', 2500);
@@ -785,9 +809,8 @@ async function refreshMonitorBrightness(force = false) {
     return true;
   }
 
-  monitorBrightnessAvailable = false;
   warnOnce('ddcutil-brightness-read-failed', 'ddcutil brightness read failed');
-  return false;
+  return monitorBrightnessAvailable;
 }
 
 async function setMonitorBrightness(value) {
@@ -1050,6 +1073,12 @@ ws.on('message', async (data) => {
       if (action === ACTIONS.disk) {
         sendUpdateIfChanged(context, generateButtonImage('🖴', 'DISKS', '...', 'Loading...', -1));
       }
+
+      for (const ctx of Object.keys(activeContexts)) {
+        delete lastSentImages[ctx];
+      }
+
+      void pollOnce();
 
       if (!pollingInterval) startPolling();
       if (!timerInterval) startTimerLoop();
