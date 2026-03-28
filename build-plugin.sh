@@ -199,48 +199,47 @@ copy_optional() {
 
 validate_zip() {
   local zip_path="$1"
-  local slug="$2"
 
-python3 - "$zip_path" "$slug" <<'PY'
+python3 - "$zip_path" <<'PY'
 import json
 import re
 import sys
 import zipfile
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
-zip_path = Path(sys.argv[1])
-slug = sys.argv[2]
-
-if not zip_path.exists():
-    print(f"ERROR: ZIP fehlt: {zip_path}", file=sys.stderr)
-    sys.exit(1)
+zip_path = sys.argv[1]
 
 with zipfile.ZipFile(zip_path, "r") as zf:
     names = set(zf.namelist())
 
     def zip_exists(rel_path: str) -> bool:
-        return f"{slug}/{rel_path}" in names
+        return rel_path in names
 
     def read_json(rel_path: str):
-        with zf.open(f"{slug}/{rel_path}") as fh:
+        with zf.open(rel_path) as fh:
             return json.load(fh)
 
     def read_text(rel_path: str) -> str:
-        with zf.open(f"{slug}/{rel_path}") as fh:
+        with zf.open(rel_path) as fh:
             return fh.read().decode("utf-8", errors="ignore")
+
+    required_paths = {
+        "manifest.json",
+        "package.json",
+        "index.js",
+        "start.sh",
+        "node_modules/ws/package.json",
+        "node_modules/systeminformation/package.json",
+    }
 
     manifest = read_json("manifest.json")
     package = read_json("package.json")
-
-    required_paths = set()
 
     def add_required(rel_path: str) -> None:
         rel_path = str(rel_path or "").strip()
         if rel_path:
             required_paths.add(rel_path)
 
-    add_required("manifest.json")
-    add_required("package.json")
     add_required(package.get("main", ""))
     add_required(manifest.get("CodePath", ""))
     add_required(manifest.get("Icon", ""))
@@ -267,9 +266,6 @@ with zipfile.ZipFile(zip_path, "r") as zf:
             ):
                 continue
             add_required((PurePosixPath(rel_path).parent / ref).as_posix())
-
-    add_required("node_modules/ws/package.json")
-    add_required("node_modules/systeminformation/package.json")
 
     missing = [path for path in sorted(required_paths) if not zip_exists(path)]
     if missing:
@@ -318,10 +314,10 @@ chmod +x "$STAGE_DIR/start.sh"
 
 rm -f "$ZIP_PATH"
 (
-  cd "$OUT_DIR"
-  zip -qr "$ZIP_NAME" "$PLUGIN_SLUG"
+  cd "$STAGE_DIR"
+  zip -qr "$ZIP_PATH" .
 )
 
-validate_zip "$ZIP_PATH" "$PLUGIN_SLUG"
+validate_zip "$ZIP_PATH"
 
 echo "Built: $ZIP_PATH"
