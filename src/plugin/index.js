@@ -4,7 +4,7 @@ const si = require('systeminformation');
 const state = require('./state');
 const { ACTIONS } = require('./constants');
 const { log, warn, clamp, runCommand, commandExists } = require('./utils');
-const { normalizeSettings, storeSettingsForContext, getSettingsForContext, getPluginWideSettings, getResolvedAction } = require('./settings');
+const { storeSettingsForContext, getSettingsForContext, getPluginWideSettings, getResolvedAction } = require('./settings');
 const { generateButtonImage, generateDialImage, generateFooterButtonImage, unavailableButton, unavailableDial } = require('./renderer');
 const transport = require('./transport');
 
@@ -511,12 +511,7 @@ async function handleMessage(data) {
     if (event === 'didReceiveSettings') {
       const resolvedAction = getResolvedAction(context, action);
       const incomingSettings = extractIncomingSettings(message.payload);
-      const merged = normalizeSettings({
-        ...getPluginWideSettings(),
-        ...incomingSettings,
-      });
-
-      const refreshChanged = storeSettingsForContext(context, merged);
+      const refreshChanged = storeSettingsForContext(context, incomingSettings);
       transport.invalidateContext(context);
 
       if (resolvedAction === ACTIONS.audio) {
@@ -538,12 +533,7 @@ async function handleMessage(data) {
 
       if (message.payload?.type === 'saveSettings' || Object.keys(incomingSettings).length > 0) {
         const resolvedAction = getResolvedAction(context, action);
-        const merged = normalizeSettings({
-          ...getPluginWideSettings(),
-          ...incomingSettings,
-        });
-
-        const refreshChanged = storeSettingsForContext(context, merged);
+        const refreshChanged = storeSettingsForContext(context, incomingSettings);
         transport.invalidateContext(context);
 
         if (resolvedAction === ACTIONS.audio) {

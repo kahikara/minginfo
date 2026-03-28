@@ -2,10 +2,13 @@ const state = require('./state');
 const { DEFAULT_SETTINGS } = require('./constants');
 const { clamp } = require('./utils');
 
+function hasOwn(settings, key) {
+  return Object.prototype.hasOwnProperty.call(settings, key);
+}
+
 function normalizeSettings(settings = {}) {
   const normalized = {
     ...DEFAULT_SETTINGS,
-    ...state.globalPluginSettings,
   };
 
   if (typeof settings.pingHost === 'string' && settings.pingHost.trim()) {
@@ -33,23 +36,37 @@ function normalizeSettings(settings = {}) {
   }
 
   const refresh = Number.parseInt(settings.refreshRate, 10);
-  normalized.refreshRate = [1, 3, 5, 10].includes(refresh) ? refresh : (state.globalPluginSettings.refreshRate || DEFAULT_SETTINGS.refreshRate);
+  normalized.refreshRate = [1, 3, 5, 10].includes(refresh) ? refresh : DEFAULT_SETTINGS.refreshRate;
 
   return normalized;
 }
 
+function normalizePluginWideSettings(settings = {}) {
+  const refresh = Number.parseInt(settings.refreshRate, 10);
+
+  return {
+    refreshRate: [1, 3, 5, 10].includes(refresh) ? refresh : DEFAULT_SETTINGS.refreshRate,
+  };
+}
+
 function storeSettingsForContext(context, settings = {}) {
   const before = getPluginWideSettings().refreshRate;
-  const normalized = normalizeSettings(settings);
+  const currentSettings = context ? (state.contextSettings[context] || {}) : {};
+  const normalized = normalizeSettings({
+    ...currentSettings,
+    ...settings,
+  });
 
   if (context) {
     state.contextSettings[context] = normalized;
   }
 
-  state.globalPluginSettings = {
-    ...state.globalPluginSettings,
-    ...normalized,
-  };
+  if (hasOwn(settings, 'refreshRate')) {
+    state.globalPluginSettings = normalizePluginWideSettings({
+      ...state.globalPluginSettings,
+      refreshRate: settings.refreshRate,
+    });
+  }
 
   return before !== getPluginWideSettings().refreshRate;
 }
@@ -59,7 +76,7 @@ function getSettingsForContext(context) {
 }
 
 function getPluginWideSettings() {
-  return normalizeSettings(state.globalPluginSettings || {});
+  return normalizePluginWideSettings(state.globalPluginSettings || {});
 }
 
 function getResolvedAction(context, fallbackAction = '') {
