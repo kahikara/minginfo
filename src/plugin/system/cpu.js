@@ -60,6 +60,49 @@ function scanCpuPowerSources(force = false) {
     warnOnce('cpu-power-scan-failed', `cpu power scan failed: ${error.message}`);
   }
 
+  try {
+    const raplRoot = '/sys/class/powercap/intel-rapl';
+    const raplDirs = fs.readdirSync(raplRoot);
+
+    for (const dir of raplDirs) {
+      const fullPath = path.join(raplRoot, dir);
+      const namePath = path.join(fullPath, 'name');
+      const energyPath = path.join(fullPath, 'energy_uj');
+
+      if (!fileExists(namePath) || !fileExists(energyPath)) continue;
+
+      sources.push({
+        name: 'intel_rapl',
+        type: 'energy',
+        path: energyPath,
+        file: 'energy_uj',
+        label: readText(namePath),
+      });
+
+      try {
+        const subdirs = fs.readdirSync(fullPath);
+
+        for (const subdir of subdirs) {
+          const subPath = path.join(fullPath, subdir);
+          const subNamePath = path.join(subPath, 'name');
+          const subEnergyPath = path.join(subPath, 'energy_uj');
+
+          if (!fileExists(subNamePath) || !fileExists(subEnergyPath)) continue;
+
+          sources.push({
+            name: 'intel_rapl',
+            type: 'energy',
+            path: subEnergyPath,
+            file: 'energy_uj',
+            label: readText(subNamePath),
+          });
+        }
+      } catch {}
+    }
+  } catch (error) {
+    warnOnce('intel-rapl-scan-failed', `intel rapl scan failed: ${error.message}`);
+  }
+
   state.cpuPowerSourceCache = {
     timestamp: now,
     sources,
@@ -79,6 +122,7 @@ function getCpuPowerSourcePriority(source) {
   if (source.type === 'power') score += 250;
   if (source.name === 'zenpower') score += 120;
   if (source.name === 'zenergy') score += 80;
+  if (source.name === 'intel_rapl') score += 70;
   if (source.name === 'amd_energy') score += 20;
 
   return score;

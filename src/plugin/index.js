@@ -9,7 +9,7 @@ const { generateButtonImage, generateDialImage, generateFooterButtonImage, unava
 const transport = require('./transport');
 
 const { getCpuPower } = require('./system/cpu');
-const { getAmdGpuStats } = require('./system/gpu');
+const { getGpuStats } = require('./system/gpu');
 const { getNetworkStats } = require('./system/network');
 const { refreshMonitorBrightness, setMonitorBrightness, getBrightnessState } = require('./system/brightness');
 const { getAudio, adjustVolume, toggleMute } = require('./system/audio');
@@ -428,7 +428,7 @@ async function pollOnce() {
 
     await Promise.allSettled(promises);
 
-    const gpuStats = needsGpu ? getAmdGpuStats() : null;
+    const gpuStats = needsGpu ? getGpuStats() : null;
     const cpuPower = needsCpu ? getCpuPower() : { available: false, watts: 0 };
     const diskSummary = summarizeDisks(diskData);
 
