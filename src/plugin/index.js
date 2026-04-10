@@ -442,12 +442,6 @@ async function pollOnce() {
         continue;
       }
 
-      if (action === ACTIONS.page) {
-        const pageName = pluginWide[`pageName${state.activePageIndex + 1}`] || `Page ${state.activePageIndex + 1}`;
-        transport.sendUpdateIfChanged(context('📑', 'PAGE', pageName.toUpperCase(), state.activePageIndex, pageCount));
-        continue;
-      }
-
       if (action === ACTIONS.audio) {
         if (!audioData.available) {
           transport.sendUpdateIfChanged(context, unavailableDial('🔊', 'VOLUME', 'NO AUDIO'));

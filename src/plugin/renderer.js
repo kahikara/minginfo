@@ -62,9 +62,6 @@ function generateCenteredHeaderButtonImage(icon, title, line1, line2, percent = 
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 }
 
-
-
-
 function generateFooterButtonImage(icon, title, line1, line2, footer = '') {
   const safeTitle = String(title || '');
   const safeLine1 = String(line1 || '');
@@ -127,9 +124,6 @@ module.exports = {
   generateCenteredHeaderButtonImage,
   generateFooterButtonImage,
   generateDialImage,
-  generatePageDialImage,
-  generateBlankButtonImage,
-  generateHiddenPageButtonImage,
   unavailableButton,
   unavailableDial,
 };
