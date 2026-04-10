@@ -443,17 +443,6 @@ async function pollOnce() {
         continue;
       }
 
-      if (action === ACTIONS.page) {
-        const pageName = pluginWide[`pageName${state.activePageIndex + 1}`] || `Page ${state.activePageIndex + 1}`;
-        transport.sendUpdateIfChanged(context, generatePageDialImage('📑', 'PAGE', pageName.toUpperCase(), state.activePageIndex, pageCount));
-        continue;
-      }
-
-      if (settings.pageSlot !== state.activePageIndex + 1) {
-        transport.sendUpdateIfChanged(context, generateBlankButtonImage());
-        continue;
-      }
-
       if (action === ACTIONS.audio) {
         if (!audioData.available) {
           transport.sendUpdateIfChanged(context, unavailableDial('🔊', 'VOLUME', 'NO AUDIO'));
