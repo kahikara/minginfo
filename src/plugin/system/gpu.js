@@ -15,14 +15,24 @@ function unavailableGpuStats() {
   };
 }
 
-function getPciBusIdFromHwmonDir(gpuDir) {
+function parsePciBusId(value) {
+  return /^\d{4}:\d{2}:\d{2}\.\d$/.test(String(value || '').trim()) ? String(value).trim() : '';
+}
+
+function getPciBusIdFromDevicePath(devicePath) {
   try {
-    const devicePath = fs.realpathSync(path.join(gpuDir, 'device'));
-    const maybePciBusId = path.basename(devicePath);
-    return /^\d{4}:\d{2}:\d{2}\.\d$/.test(maybePciBusId) ? maybePciBusId : '';
+    return parsePciBusId(path.basename(fs.realpathSync(devicePath)));
   } catch (error) {
     return '';
   }
+}
+
+function getPciBusIdFromHwmonDir(gpuDir) {
+  return getPciBusIdFromDevicePath(path.join(gpuDir, 'device'));
+}
+
+function getPciBusIdFromCardDir(cardDir) {
+  return getPciBusIdFromDevicePath(path.join(cardDir, 'device'));
 }
 
 function parseLspciDeviceName(output) {
@@ -34,13 +44,59 @@ function parseLspciDeviceName(output) {
   return matches[2].slice(1, -1).trim();
 }
 
-function getAmdGpuNameFromHwmonDir(gpuDir, pciBusId = '') {
-  const sysfsCandidates = [
-    path.join(gpuDir, 'device', 'product_name'),
-    path.join(gpuDir, 'device', 'product_number'),
-  ];
+function getPciDeviceName(pciBusId) {
+  if (!pciBusId) {
+    return '';
+  }
 
-  for (const candidate of sysfsCandidates) {
+  try {
+    const output = execFileSync('lspci', ['-s', pciBusId, '-mm'], {
+      encoding: 'utf8',
+      timeout: 1500,
+    }).trim();
+
+    return parseLspciDeviceName(output);
+  } catch (error) {
+    return '';
+  }
+}
+
+function stripLeadingVendor(name = '', vendorPrefix = '') {
+  const text = String(name || '').trim();
+  if (!text || !vendorPrefix) {
+    return text;
+  }
+
+  const lower = text.toLowerCase();
+  const vendor = vendorPrefix.toLowerCase();
+
+  if (lower.startsWith(`${vendor} `)) {
+    return text.slice(vendorPrefix.length).trim();
+  }
+
+  if (vendor === 'intel' && lower.startsWith('intel corporation ')) {
+    return text.slice('Intel Corporation'.length).trim();
+  }
+
+  if (vendor === 'nvidia' && lower.startsWith('nvidia corporation ')) {
+    return text.slice('NVIDIA Corporation'.length).trim();
+  }
+
+  if (vendor === 'amd' && lower.startsWith('advanced micro devices ')) {
+    return text.slice('Advanced Micro Devices'.length).trim();
+  }
+
+  return text;
+}
+
+function buildGpuLabel(vendorPrefix, gpuName, fallbackLabel, pciBusId = '') {
+  const normalizedName = stripLeadingVendor(gpuName, vendorPrefix);
+  const base = normalizedName ? `${vendorPrefix} ${normalizedName}` : fallbackLabel;
+  return pciBusId ? `${base} (${pciBusId})` : base;
+}
+
+function readFirstNonEmpty(paths) {
+  for (const candidate of paths) {
     if (!fileExists(candidate)) continue;
     const value = readText(candidate).trim();
     if (value) {
@@ -48,22 +104,19 @@ function getAmdGpuNameFromHwmonDir(gpuDir, pciBusId = '') {
     }
   }
 
-  if (pciBusId) {
-    try {
-      const output = execFileSync('lspci', ['-s', pciBusId, '-mm'], {
-        encoding: 'utf8',
-        timeout: 1500,
-      }).trim();
+  return '';
+}
 
-      const parsedName = parseLspciDeviceName(output);
-      if (parsedName) {
-        return parsedName;
-      }
-    } catch (error) {
+function readNumberFromPaths(paths) {
+  for (const candidate of paths) {
+    if (!fileExists(candidate)) continue;
+    const value = Number.parseInt(readText(candidate), 10);
+    if (Number.isFinite(value)) {
+      return value;
     }
   }
 
-  return '';
+  return null;
 }
 
 function scanAmdGpuDirs() {
@@ -89,6 +142,19 @@ function scanAmdGpuDirs() {
   }
 }
 
+function getAmdGpuNameFromHwmonDir(gpuDir, pciBusId = '') {
+  const sysfsName = readFirstNonEmpty([
+    path.join(gpuDir, 'device', 'product_name'),
+    path.join(gpuDir, 'device', 'product_number'),
+  ]);
+
+  if (sysfsName) {
+    return sysfsName;
+  }
+
+  return getPciDeviceName(pciBusId);
+}
+
 function getAmdGpuEntries(force = false) {
   const scanned = scanAmdGpuDirs();
   let ordered = scanned;
@@ -103,7 +169,6 @@ function getAmdGpuEntries(force = false) {
     const pciBusId = getPciBusIdFromHwmonDir(gpuDir);
     const id = `amd:${pciBusId || index}`;
     const gpuName = getAmdGpuNameFromHwmonDir(gpuDir, pciBusId);
-    const labelBase = gpuName ? `AMD ${gpuName}` : `AMD GPU ${index + 1}`;
 
     return {
       kind: 'amd',
@@ -111,7 +176,7 @@ function getAmdGpuEntries(force = false) {
       legacyId: `amd:${index}`,
       pciBusId,
       gpuDir,
-      label: `${labelBase}${pciBusId ? ` (${pciBusId})` : ''}`,
+      label: buildGpuLabel('AMD', gpuName, `AMD GPU ${index + 1}`, pciBusId),
     };
   });
 }
@@ -130,23 +195,15 @@ function getAmdGpuStatsFromDir(gpuDir) {
     return unavailableGpuStats();
   }
 
-  const readNumber = (file) => {
-    const fullPath = path.join(gpuDir, file);
-    if (!fileExists(fullPath)) return null;
-    const value = Number.parseInt(readText(fullPath), 10);
-    return Number.isFinite(value) ? value : null;
-  };
-
   try {
-    const tempEdge = readNumber('temp1_input');
-    const power = readNumber('power1_average') ?? readNumber('power1_input');
-    const usagePath = path.join(gpuDir, 'device', 'gpu_busy_percent');
-    const vramUsedPath = path.join(gpuDir, 'device', 'mem_info_vram_used');
-    const vramTotalPath = path.join(gpuDir, 'device', 'mem_info_vram_total');
-
-    const usage = fileExists(usagePath) ? Number.parseInt(readText(usagePath), 10) : 0;
-    const vramUsed = fileExists(vramUsedPath) ? Number.parseInt(readText(vramUsedPath), 10) : 0;
-    const vramTotal = fileExists(vramTotalPath) ? Number.parseInt(readText(vramTotalPath), 10) : 0;
+    const tempEdge = readNumberFromPaths([path.join(gpuDir, 'temp1_input')]);
+    const power = readNumberFromPaths([
+      path.join(gpuDir, 'power1_average'),
+      path.join(gpuDir, 'power1_input'),
+    ]);
+    const usage = readNumberFromPaths([path.join(gpuDir, 'device', 'gpu_busy_percent')]);
+    const vramUsed = readNumberFromPaths([path.join(gpuDir, 'device', 'mem_info_vram_used')]);
+    const vramTotal = readNumberFromPaths([path.join(gpuDir, 'device', 'mem_info_vram_total')]);
 
     return {
       available: true,
@@ -172,6 +229,106 @@ function getAmdGpuStatsBySelector(selector) {
   return entry ? getAmdGpuStatsFromDir(entry.gpuDir) : unavailableGpuStats();
 }
 
+function scanIntelGpuCards() {
+  try {
+    const drmRoot = '/sys/class/drm';
+    return fs.readdirSync(drmRoot)
+      .filter((name) => /^card\d+$/.test(name))
+      .sort((a, b) => (Number.parseInt(a.slice(4), 10) || 0) - (Number.parseInt(b.slice(4), 10) || 0))
+      .map((name) => path.join(drmRoot, name))
+      .filter((cardDir) => {
+        const vendorPath = path.join(cardDir, 'device', 'vendor');
+        return fileExists(vendorPath) && readText(vendorPath).trim().toLowerCase() === '0x8086';
+      });
+  } catch (error) {
+    warnOnce('intel-gpu-scan-failed', `intel gpu scan failed: ${error.message}`);
+    return [];
+  }
+}
+
+function findCardHwmonDir(cardDir) {
+  try {
+    const hwmonRoot = path.join(cardDir, 'device', 'hwmon');
+    if (!fs.existsSync(hwmonRoot)) {
+      return null;
+    }
+
+    const dirs = fs.readdirSync(hwmonRoot).sort();
+    const first = dirs.find((name) => name.startsWith('hwmon'));
+    return first ? path.join(hwmonRoot, first) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function getIntelGpuEntries() {
+  const cardDirs = scanIntelGpuCards();
+
+  return cardDirs.map((cardDir, index) => {
+    const pciBusId = getPciBusIdFromCardDir(cardDir);
+    const id = `intel:${pciBusId || index}`;
+    const gpuName = getPciDeviceName(pciBusId);
+
+    return {
+      kind: 'intel',
+      id,
+      legacyId: `intel:${index}`,
+      pciBusId,
+      cardDir,
+      hwmonDir: findCardHwmonDir(cardDir),
+      label: buildGpuLabel('Intel', gpuName, `Intel GPU ${index + 1}`, pciBusId),
+    };
+  });
+}
+
+function getIntelGpuStatsFromEntry(entry) {
+  if (!entry) {
+    return unavailableGpuStats();
+  }
+
+  try {
+    const tempEdge = entry.hwmonDir ? readNumberFromPaths([path.join(entry.hwmonDir, 'temp1_input')]) : null;
+    const power = entry.hwmonDir ? readNumberFromPaths([
+      path.join(entry.hwmonDir, 'power1_average'),
+      path.join(entry.hwmonDir, 'power1_input'),
+    ]) : null;
+    const usage = readNumberFromPaths([
+      path.join(entry.cardDir, 'gt_busy_percent'),
+      path.join(entry.cardDir, 'device', 'gt_busy_percent'),
+    ]);
+    const vramUsed = readNumberFromPaths([
+      path.join(entry.cardDir, 'device', 'mem_info_vram_used'),
+      path.join(entry.cardDir, 'device', 'lmem_used_bytes'),
+    ]);
+    const vramTotal = readNumberFromPaths([
+      path.join(entry.cardDir, 'device', 'mem_info_vram_total'),
+      path.join(entry.cardDir, 'device', 'lmem_total_bytes'),
+    ]);
+
+    return {
+      available: true,
+      temp: tempEdge ? Math.round(tempEdge / 1000) : 0,
+      power: power ? Math.round(power / 1000000) : 0,
+      usage: Number.isFinite(usage) ? usage : 0,
+      vramUsed: Number.isFinite(vramUsed) ? vramUsed : 0,
+      vramTotal: Number.isFinite(vramTotal) ? vramTotal : 0,
+    };
+  } catch (error) {
+    warnOnce('intel-gpu-read-failed', `intel gpu read failed: ${error.message}`);
+    return unavailableGpuStats();
+  }
+}
+
+function getIntelGpuStats() {
+  const entry = getIntelGpuEntries()[0];
+  return entry ? getIntelGpuStatsFromEntry(entry) : unavailableGpuStats();
+}
+
+function getIntelGpuStatsBySelector(selector) {
+  const entry = getIntelGpuEntries().find((candidate) => selector === candidate.id || selector === candidate.legacyId);
+  return entry ? getIntelGpuStatsFromEntry(entry) : unavailableGpuStats();
+}
+
 function parseNvidiaCsvNumber(value) {
   const numeric = Number.parseFloat(String(value || '').trim());
   return Number.isFinite(numeric) ? numeric : 0;
@@ -190,6 +347,20 @@ function runNvidiaQuery(fields) {
 
 function parseNvidiaCsvLine(line) {
   return String(line || '').split(',').map((part) => part.trim());
+}
+
+function getNvidiaGpuName(nameRaw, pciBusId = '', index = 0) {
+  const directName = stripLeadingVendor(nameRaw, 'NVIDIA');
+  if (directName) {
+    return directName;
+  }
+
+  const lspciName = stripLeadingVendor(getPciDeviceName(pciBusId), 'NVIDIA');
+  if (lspciName) {
+    return lspciName;
+  }
+
+  return `GPU ${index + 1}`;
 }
 
 function getNvidiaGpuStatsFromValues(usageRaw, tempRaw, vramUsedRaw, vramTotalRaw, powerRaw) {
@@ -218,7 +389,7 @@ function getNvidiaGpuEntries() {
         const [indexRaw, pciBusIdRaw, nameRaw] = parseNvidiaCsvLine(line);
         const index = String(indexRaw || position).trim();
         const pciBusId = String(pciBusIdRaw || '').trim();
-        const name = nameRaw || `GPU ${position + 1}`;
+        const gpuName = getNvidiaGpuName(nameRaw, pciBusId, position);
 
         return {
           kind: 'nvidia',
@@ -226,7 +397,7 @@ function getNvidiaGpuEntries() {
           legacyId: `nvidia:${index}`,
           index,
           pciBusId,
-          label: `NVIDIA ${name}${pciBusId ? ` (${pciBusId})` : ''}`,
+          label: buildGpuLabel('NVIDIA', gpuName, `NVIDIA GPU ${position + 1}`, pciBusId),
         };
       });
   } catch (error) {
@@ -287,6 +458,7 @@ function listAvailableGpus() {
   return [
     ...getAmdGpuEntries(),
     ...getNvidiaGpuEntries(),
+    ...getIntelGpuEntries(),
   ].map(({ id, label }) => ({ id, label }));
 }
 
@@ -299,7 +471,12 @@ function getGpuStats(selector = 'auto') {
       return amdStats;
     }
 
-    return getNvidiaGpuStats();
+    const nvidiaStats = getNvidiaGpuStats();
+    if (nvidiaStats.available) {
+      return nvidiaStats;
+    }
+
+    return getIntelGpuStats();
   }
 
   if (normalizedSelector.startsWith('amd:')) {
@@ -308,6 +485,10 @@ function getGpuStats(selector = 'auto') {
 
   if (normalizedSelector.startsWith('nvidia:')) {
     return getNvidiaGpuStatsBySelector(normalizedSelector);
+  }
+
+  if (normalizedSelector.startsWith('intel:')) {
+    return getIntelGpuStatsBySelector(normalizedSelector);
   }
 
   return getGpuStats('auto');

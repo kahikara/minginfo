@@ -690,6 +690,10 @@ async function handleMessage(data) {
           sendGpuOptionsToPropertyInspector(context);
         }
 
+        if (resolvedAction === ACTIONS.gpu) {
+          await pollOnce();
+        }
+
         if (resolvedAction === ACTIONS.audio) {
           await updateAudioImmediately(context);
         } else if (resolvedAction === ACTIONS.monbright) {
