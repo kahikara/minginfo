@@ -25,6 +25,47 @@ function getPciBusIdFromHwmonDir(gpuDir) {
   }
 }
 
+function parseLspciDeviceName(output) {
+  const matches = String(output || '').match(/"([^"]*)"/g);
+  if (!matches || matches.length < 3) {
+    return '';
+  }
+
+  return matches[2].slice(1, -1).trim();
+}
+
+function getAmdGpuNameFromHwmonDir(gpuDir, pciBusId = '') {
+  const sysfsCandidates = [
+    path.join(gpuDir, 'device', 'product_name'),
+    path.join(gpuDir, 'device', 'product_number'),
+  ];
+
+  for (const candidate of sysfsCandidates) {
+    if (!fileExists(candidate)) continue;
+    const value = readText(candidate).trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  if (pciBusId) {
+    try {
+      const output = execFileSync('lspci', ['-s', pciBusId, '-mm'], {
+        encoding: 'utf8',
+        timeout: 1500,
+      }).trim();
+
+      const parsedName = parseLspciDeviceName(output);
+      if (parsedName) {
+        return parsedName;
+      }
+    } catch (error) {
+    }
+  }
+
+  return '';
+}
+
 function scanAmdGpuDirs() {
   try {
     const hwmonRoot = '/sys/class/hwmon';
@@ -61,6 +102,8 @@ function getAmdGpuEntries(force = false) {
   return ordered.map((gpuDir, index) => {
     const pciBusId = getPciBusIdFromHwmonDir(gpuDir);
     const id = `amd:${pciBusId || index}`;
+    const gpuName = getAmdGpuNameFromHwmonDir(gpuDir, pciBusId);
+    const labelBase = gpuName ? `AMD ${gpuName}` : `AMD GPU ${index + 1}`;
 
     return {
       kind: 'amd',
@@ -68,7 +111,7 @@ function getAmdGpuEntries(force = false) {
       legacyId: `amd:${index}`,
       pciBusId,
       gpuDir,
-      label: `AMD GPU ${index + 1}${pciBusId ? ` (${pciBusId})` : ''}`,
+      label: `${labelBase}${pciBusId ? ` (${pciBusId})` : ''}`,
     };
   });
 }
