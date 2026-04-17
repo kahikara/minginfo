@@ -164,10 +164,64 @@ function renderTimeImage(context) {
   );
 }
 
+function trimBatteryLabel(label) {
+  let value = String(label || '').trim();
+
+  if (!value) return 'UNKNOWN';
+
+  value = value
+    .replace(/^Logitech\s+/i, '')
+    .replace(/\s+LIGHTSPEED$/i, '')
+    .replace(/\s+Wireless$/i, '')
+    .replace(/\s+Mouse$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!value) {
+    value = String(label || '').trim();
+  }
+
+  return value.length > 12 ? `${value.slice(0, 11)}…` : value;
+}
+
+function renderBatteryImage(batteryData) {
+  if (!batteryData?.available) {
+    return generateButtonImage('🔋', 'BATTERY', 'N/A', 'NO DATA', -1);
+  }
+
+  return generateButtonImage(
+    '🔋',
+    'BATTERY',
+    `${batteryData.percentage}%`,
+    trimBatteryLabel(batteryData.label),
+    batteryData.percentage
+  );
+}
+
+function renderTimeImage(context) {
+  const now = new Date();
+
+  if (state.activeContexts[context]?.isEncoder) {
+    return generateDialImage(
+      '🕒',
+      'CLOCK',
+      now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+      -1
+    );
+  }
+
+  return generateButtonImage(
+    '🕒',
+    'CLOCK',
+    now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+    now.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }),
+    -1
+  );
+}
+
 async function updateBatteryImmediately(context) {
   const settings = getSettingsForContext(context);
   const batteryData = await getMouseBattery(settings.batteryDevice);
-
   transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData));
 }
 
@@ -315,7 +369,7 @@ async function runCustomPressCommand(context, settings, resolvedAction) {
 }
 
 function extractIncomingSettings(payload = {}) {
-  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand', ];
+  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand', ];
 
   function visit(value, depth = 0) {
     if (!value || typeof value !== 'object' || depth > 6) {
