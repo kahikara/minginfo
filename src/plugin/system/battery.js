@@ -9,6 +9,7 @@ const lastBatterySamples = new Map();
 const DEVICE_CACHE_MS = 5000;
 const SAMPLE_CACHE_MS = 180000;
 const TRANSIENT_ZERO_HOLD_MS = 20000;
+const CHARGE_STATE_HOLD_MS = 15000;
 const SYSFS_POWER_SUPPLY_ROOT = '/sys/class/power_supply';
 
 function fileExists(filePath) {
@@ -61,6 +62,16 @@ function normalizeState(state) {
   if (value === 'unknown') return 'UNKNOWN';
 
   return value ? value.toUpperCase() : 'UPOWER';
+}
+
+function isChargingLikeState(state) {
+  const value = normalizeState(state);
+  return value === 'CHARGING' || value === 'PENDING' || value === 'FULL';
+}
+
+function isAmbiguousBatteryState(state) {
+  const value = normalizeState(state);
+  return value === 'UNKNOWN' || value === 'UPOWER';
 }
 
 function humanizeDevicePath(devicePath = '') {
@@ -268,9 +279,10 @@ function readSysfsBatteryState(dirPath) {
 
 function normalizeBatteryReading(deviceId, info = {}, previousSample = null) {
   const rawState = String(info.state || '').trim();
-  const normalizedState = rawState
+  const previousState = normalizeState(previousSample?.state || '');
+  let normalizedState = rawState
     ? normalizeState(rawState)
-    : normalizeState(previousSample?.state || '');
+    : previousState;
 
   const manufacturer = String(info.manufacturer || previousSample?.manufacturer || '').trim();
   const model = String(info.model || previousSample?.model || '').trim();
@@ -292,6 +304,20 @@ function normalizeBatteryReading(deviceId, info = {}, previousSample = null) {
     (Date.now() - previousSample.updatedAt) <= TRANSIENT_ZERO_HOLD_MS
   ) {
     percentage = previousSample.percentage;
+  }
+
+  if (
+    previousSample &&
+    isChargingLikeState(previousState) &&
+    (Date.now() - previousSample.updatedAt) <= CHARGE_STATE_HOLD_MS
+  ) {
+    const sameLevel = Number.isFinite(percentage) && Number.isFinite(previousSample.percentage) && percentage === previousSample.percentage;
+    const ambiguousNow = isAmbiguousBatteryState(normalizedState);
+    const weakFallbackNow = normalizedState === 'DISCHARGING' && online === 0;
+
+    if (sameLevel && (ambiguousNow || weakFallbackNow)) {
+      normalizedState = previousState;
+    }
   }
 
   if (!Number.isFinite(percentage)) {
