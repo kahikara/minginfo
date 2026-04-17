@@ -417,7 +417,12 @@ function resolveSysfsSelection(selectedDevice, candidates) {
     .sort((a, b) => getAutoDevicePriority(b) - getAutoDevicePriority(a));
 
   if (legacyRawMatches.length > 0) {
-    return legacyRawMatches[0];
+    const stableId = legacyRawMatches[0].deviceId;
+    const stableMatches = candidates
+      .filter((entry) => entry.deviceId === stableId)
+      .sort((a, b) => getAutoDevicePriority(b) - getAutoDevicePriority(a));
+
+    return stableMatches[0] || legacyRawMatches[0];
   }
 
   const cachedLegacy = getCachedBatterySampleByRawId(selected);
