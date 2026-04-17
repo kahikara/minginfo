@@ -107,15 +107,17 @@ function generateBatteryButtonImage(icon, title, line1, line2, percent = -1, isC
 
   if (isCharging) {
     const estimatedTextWidth = safeLine1.length * line1Size * 0.56;
-    const chargingX = Math.round(72 + (estimatedTextWidth / 2) + 3);
-    chargingHtml = `<text x="${chargingX}" y="76" fill="#facc15" font-family="sans-serif" font-size="${chargeSize}" font-weight="bold" text-anchor="start">⚡</text>`;
+    const chargeOffset = Math.round((estimatedTextWidth / 2) + 4);
+    chargingHtml = `<text x="${chargeOffset}" y="0" fill="#facc15" font-family="sans-serif" font-size="${chargeSize}" font-weight="bold" text-anchor="start">⚡</text>`;
   }
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#18181b"/>
     <text x="72" y="31" fill="#a1a1aa" font-family="sans-serif" font-size="${titleSize}" font-weight="bold" text-anchor="middle">${escapeXml(safeHeader)}</text>
-    <text x="72" y="76" fill="#ffffff" font-family="sans-serif" font-size="${line1Size}" font-weight="bold" text-anchor="middle">${escapeXml(safeLine1)}</text>
-    ${chargingHtml}
+    <g transform="translate(72 76)">
+      <text x="0" y="0" fill="#ffffff" font-family="sans-serif" font-size="${line1Size}" font-weight="bold" text-anchor="middle">${escapeXml(safeLine1)}</text>
+      ${chargingHtml}
+    </g>
     <text x="72" y="104" fill="#a1a1aa" font-family="sans-serif" font-size="${line2Size}" text-anchor="middle">${escapeXml(safeLine2)}</text>
     ${barHtml}
   </svg>`;
