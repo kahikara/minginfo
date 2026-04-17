@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const { runCommand, shellEscape } = require('../utils');
 
 let cachedDevices = [];
@@ -7,11 +9,35 @@ const lastBatterySamples = new Map();
 const DEVICE_CACHE_MS = 5000;
 const SAMPLE_CACHE_MS = 180000;
 const TRANSIENT_ZERO_HOLD_MS = 20000;
+const SYSFS_POWER_SUPPLY_ROOT = '/sys/class/power_supply';
+
+function fileExists(filePath) {
+  try {
+    fs.accessSync(filePath, fs.constants.R_OK);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function readText(filePath) {
+  try {
+    return fs.readFileSync(filePath, 'utf8').trim();
+  } catch (error) {
+    return '';
+  }
+}
+
+function parseInteger(value) {
+  const parsed = Number.parseInt(String(value || '').trim(), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 function parseBatteryInfo(text = '') {
   const percentageMatch = text.match(/percentage:\s*([0-9]+)%/i);
   const stateMatch = text.match(/state:\s*([^\n\r]+)/i);
   const modelMatch = text.match(/model:\s*([^\n\r]+)/i);
+  const vendorMatch = text.match(/vendor:\s*([^\n\r]+)/i);
 
   const percentage = percentageMatch ? Number.parseInt(percentageMatch[1], 10) : NaN;
 
@@ -19,6 +45,7 @@ function parseBatteryInfo(text = '') {
     percentage: Number.isFinite(percentage) ? Math.max(0, Math.min(100, percentage)) : null,
     state: stateMatch ? stateMatch[1].trim() : '',
     model: modelMatch ? modelMatch[1].trim() : '',
+    manufacturer: vendorMatch ? vendorMatch[1].trim() : '',
   };
 }
 
@@ -49,21 +76,55 @@ function humanizeDevicePath(devicePath = '') {
     .join(' ');
 }
 
-function getDeviceLabel(devicePath, model = '') {
-  const safeModel = String(model || '').trim();
-  return safeModel || humanizeDevicePath(devicePath);
+function humanizePowerSupplyName(deviceId = '') {
+  const base = String(deviceId || '')
+    .replace(/^hidpp_battery_/i, 'HIDPP ')
+    .replace(/^battery_/i, '')
+    .replace(/_/g, ' ')
+    .trim();
+
+  if (!base) {
+    return 'Battery';
+  }
+
+  return base
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => (part.length <= 4 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join(' ');
 }
 
-function scoreDevice(devicePath, label = '') {
-  let score = 0;
-  const path = String(devicePath || '').toLowerCase();
-  const name = String(label || '').toLowerCase();
+function getDeviceLabel(deviceId, model = '', manufacturer = '') {
+  const safeManufacturer = String(manufacturer || '').trim();
+  const safeModel = String(model || '').trim();
 
-  if (path.includes('hidpp_battery')) score += 100;
-  if (path.includes('mouse')) score += 20;
+  if (safeManufacturer && safeModel) {
+    return `${safeManufacturer} ${safeModel}`.trim();
+  }
+
+  if (safeModel) {
+    return safeModel;
+  }
+
+  if (String(deviceId || '').startsWith('/org/freedesktop/UPower/devices/')) {
+    return humanizeDevicePath(deviceId);
+  }
+
+  return humanizePowerSupplyName(deviceId);
+}
+
+function scoreDevice(deviceId, label = '', manufacturer = '') {
+  let score = 0;
+  const id = String(deviceId || '').toLowerCase();
+  const name = String(label || '').toLowerCase();
+  const vendor = String(manufacturer || '').toLowerCase();
+
+  if (id.includes('hidpp_battery')) score += 100;
+  if (id.includes('mouse')) score += 30;
   if (name.includes('mouse')) score += 20;
-  if (name.includes('logitech')) score += 10;
-  if (path.includes('battery_')) score += 10;
+  if (name.includes('logitech')) score += 15;
+  if (vendor.includes('logitech')) score += 15;
+  if (id.includes('battery_')) score += 10;
 
   return score;
 }
@@ -79,8 +140,8 @@ function cloneBatterySample(sample, fromCache = false) {
   };
 }
 
-function getCachedBatterySample(devicePath, maxAgeMs = SAMPLE_CACHE_MS) {
-  const sample = lastBatterySamples.get(devicePath);
+function getCachedBatterySample(deviceId, maxAgeMs = SAMPLE_CACHE_MS) {
+  const sample = lastBatterySamples.get(deviceId);
 
   if (!sample) {
     return null;
@@ -93,8 +154,16 @@ function getCachedBatterySample(devicePath, maxAgeMs = SAMPLE_CACHE_MS) {
   return cloneBatterySample(sample, true);
 }
 
+function getBestCachedBatterySample() {
+  const samples = Array.from(lastBatterySamples.values())
+    .filter((sample) => sample && (Date.now() - sample.updatedAt) <= SAMPLE_CACHE_MS)
+    .sort((a, b) => scoreDevice(b.deviceId, b.label, b.manufacturer) - scoreDevice(a.deviceId, a.label, a.manufacturer));
+
+  return samples.length > 0 ? cloneBatterySample(samples[0], true) : null;
+}
+
 function storeBatterySample(sample) {
-  if (!sample || !sample.devicePath || !Number.isFinite(sample.percentage)) {
+  if (!sample || !sample.deviceId || !Number.isFinite(sample.percentage)) {
     return null;
   }
 
@@ -104,12 +173,13 @@ function storeBatterySample(sample) {
     fromCache: false,
   };
 
-  lastBatterySamples.set(sample.devicePath, stored);
+  lastBatterySamples.set(sample.deviceId, stored);
   return cloneBatterySample(stored, false);
 }
 
-function normalizeBatteryReading(devicePath, info = {}, previousSample = null) {
+function normalizeBatteryReading(deviceId, info = {}, previousSample = null) {
   const normalizedState = normalizeState(info.state || previousSample?.state || '');
+  const manufacturer = String(info.manufacturer || previousSample?.manufacturer || '').trim();
   const model = String(info.model || previousSample?.model || '').trim();
 
   let percentage = Number.isFinite(info.percentage) ? Math.max(0, Math.min(100, info.percentage)) : null;
@@ -133,14 +203,84 @@ function normalizeBatteryReading(devicePath, info = {}, previousSample = null) {
   }
 
   return storeBatterySample({
-    devicePath,
+    deviceId,
     percentage,
     state: normalizedState,
     model,
+    manufacturer,
+    label: getDeviceLabel(deviceId, model, manufacturer),
+    source: info.source || previousSample?.source || 'unknown',
   });
 }
 
-async function readBatteryDevice(devicePath) {
+function isSysfsBatteryDevice(deviceId) {
+  const dir = path.join(SYSFS_POWER_SUPPLY_ROOT, deviceId);
+  const type = readText(path.join(dir, 'type'));
+  const scope = readText(path.join(dir, 'scope'));
+
+  if (type !== 'Battery') {
+    return false;
+  }
+
+  if (scope && scope !== 'Device') {
+    return false;
+  }
+
+  return true;
+}
+
+function readSysfsBatteryDevice(deviceId) {
+  const previousSample = getCachedBatterySample(deviceId);
+  const dir = path.join(SYSFS_POWER_SUPPLY_ROOT, deviceId);
+
+  if (!fileExists(dir)) {
+    return previousSample;
+  }
+
+  const percentage = parseInteger(readText(path.join(dir, 'capacity')));
+  const state = readText(path.join(dir, 'status'));
+  const model = readText(path.join(dir, 'model_name'));
+  const manufacturer = readText(path.join(dir, 'manufacturer'));
+
+  const normalized = normalizeBatteryReading(deviceId, {
+    percentage,
+    state,
+    model,
+    manufacturer,
+    source: 'sysfs',
+  }, previousSample);
+
+  return normalized || previousSample;
+}
+
+function listSysfsBatteryDevices() {
+  try {
+    if (!fileExists(SYSFS_POWER_SUPPLY_ROOT)) {
+      return [];
+    }
+
+    return fs.readdirSync(SYSFS_POWER_SUPPLY_ROOT)
+      .filter((deviceId) => isSysfsBatteryDevice(deviceId))
+      .map((deviceId) => {
+        const info = readSysfsBatteryDevice(deviceId);
+        return {
+          id: deviceId,
+          label: info?.label || getDeviceLabel(deviceId),
+          model: info?.model || '',
+          manufacturer: info?.manufacturer || '',
+          percentage: info?.percentage ?? null,
+          state: normalizeState(info?.state || ''),
+          source: 'sysfs',
+          fromCache: Boolean(info?.fromCache),
+        };
+      })
+      .sort((a, b) => scoreDevice(b.id, b.label, b.manufacturer) - scoreDevice(a.id, a.label, a.manufacturer));
+  } catch (error) {
+    return [];
+  }
+}
+
+async function readUpowerBatteryDevice(devicePath) {
   const previousSample = getCachedBatterySample(devicePath);
   const result = await runCommand(`upower -i ${shellEscape(devicePath)}`, 4000);
 
@@ -149,22 +289,19 @@ async function readBatteryDevice(devicePath) {
   }
 
   const info = parseBatteryInfo(result.stdout);
-  const normalized = normalizeBatteryReading(devicePath, info, previousSample);
+  const normalized = normalizeBatteryReading(devicePath, {
+    ...info,
+    source: 'upower',
+  }, previousSample);
 
   return normalized || previousSample;
 }
 
-async function listBatteryDevices(force = false) {
-  if (!force && cachedDevices.length > 0 && (Date.now() - lastDeviceScan) < DEVICE_CACHE_MS) {
-    return cachedDevices;
-  }
-
+async function listUpowerBatteryDevices() {
   const result = await runCommand('upower -e', 3000);
-  lastDeviceScan = Date.now();
 
   if (result.error || !result.stdout) {
-    cachedDevices = [];
-    return cachedDevices;
+    return [];
   }
 
   const paths = result.stdout
@@ -174,19 +311,63 @@ async function listBatteryDevices(force = false) {
     .filter((line) => line.includes('/org/freedesktop/UPower/devices/battery_'));
 
   const devices = await Promise.all(paths.map(async (devicePath) => {
-    const info = await readBatteryDevice(devicePath);
-    const label = getDeviceLabel(devicePath, info?.model || '');
+    const info = await readUpowerBatteryDevice(devicePath);
 
     return {
       id: devicePath,
-      label,
+      label: info?.label || getDeviceLabel(devicePath, info?.model, info?.manufacturer),
       model: info?.model || '',
+      manufacturer: info?.manufacturer || '',
       percentage: info?.percentage ?? null,
       state: normalizeState(info?.state || ''),
+      source: 'upower',
+      fromCache: Boolean(info?.fromCache),
     };
   }));
 
-  cachedDevices = devices.sort((a, b) => scoreDevice(b.id, b.label) - scoreDevice(a.id, a.label));
+  return devices.sort((a, b) => scoreDevice(b.id, b.label, b.manufacturer) - scoreDevice(a.id, a.label, a.manufacturer));
+}
+
+function mergeCachedDevices(devices) {
+  const merged = [...devices];
+  const knownIds = new Set(merged.map((entry) => entry.id));
+
+  for (const sample of lastBatterySamples.values()) {
+    if (!sample || !sample.deviceId) continue;
+    if ((Date.now() - sample.updatedAt) > SAMPLE_CACHE_MS) continue;
+    if (knownIds.has(sample.deviceId)) continue;
+
+    merged.push({
+      id: sample.deviceId,
+      label: sample.label || getDeviceLabel(sample.deviceId, sample.model, sample.manufacturer),
+      model: sample.model || '',
+      manufacturer: sample.manufacturer || '',
+      percentage: sample.percentage,
+      state: normalizeState(sample.state),
+      source: sample.source || 'cache',
+      fromCache: true,
+    });
+    knownIds.add(sample.deviceId);
+  }
+
+  return merged.sort((a, b) => scoreDevice(b.id, b.label, b.manufacturer) - scoreDevice(a.id, a.label, a.manufacturer));
+}
+
+async function listBatteryDevices(force = false) {
+  if (!force && cachedDevices.length > 0 && (Date.now() - lastDeviceScan) < DEVICE_CACHE_MS) {
+    return cachedDevices;
+  }
+
+  lastDeviceScan = Date.now();
+
+  const sysfsDevices = listSysfsBatteryDevices();
+  if (sysfsDevices.length > 0) {
+    cachedDevices = mergeCachedDevices(sysfsDevices);
+    return cachedDevices;
+  }
+
+  const upowerDevices = await listUpowerBatteryDevices();
+  cachedDevices = mergeCachedDevices(upowerDevices);
   return cachedDevices;
 }
 
@@ -203,10 +384,12 @@ async function resolveBatteryDevice(selectedDevice = 'auto', force = false) {
 
 async function getMouseBattery(selectedDevice = 'auto') {
   const selected = String(selectedDevice || '').trim();
-  let devicePath = await resolveBatteryDevice(selectedDevice, false);
+  let deviceId = await resolveBatteryDevice(selectedDevice, false);
 
-  if (!devicePath) {
-    const cached = selected && selected !== 'auto' ? getCachedBatterySample(selected) : null;
+  if (!deviceId) {
+    const cached = selected && selected !== 'auto'
+      ? getCachedBatterySample(selected)
+      : getBestCachedBatterySample();
 
     if (!cached) {
       return { available: false };
@@ -216,45 +399,58 @@ async function getMouseBattery(selectedDevice = 'auto') {
       available: true,
       percentage: cached.percentage,
       state: normalizeState(cached.state),
-      label: getDeviceLabel(cached.devicePath, cached.model),
+      label: cached.label || getDeviceLabel(cached.deviceId, cached.model, cached.manufacturer),
       model: cached.model || '',
-      path: cached.devicePath,
+      manufacturer: cached.manufacturer || '',
+      path: cached.deviceId,
       fromCache: true,
+      source: cached.source || 'cache',
     };
   }
 
-  let info = await readBatteryDevice(devicePath);
+  let info = null;
+
+  if (deviceId.startsWith('/org/freedesktop/UPower/devices/')) {
+    info = await readUpowerBatteryDevice(deviceId);
+  } else {
+    info = readSysfsBatteryDevice(deviceId);
+  }
 
   if (selected === 'auto' && (!info || info.fromCache)) {
-    const refreshedPath = await resolveBatteryDevice('auto', true);
+    const refreshedId = await resolveBatteryDevice('auto', true);
 
-    if (refreshedPath) {
-      devicePath = refreshedPath;
-      info = await readBatteryDevice(devicePath) || info;
+    if (refreshedId) {
+      deviceId = refreshedId;
+      info = refreshedId.startsWith('/org/freedesktop/UPower/devices/')
+        ? await readUpowerBatteryDevice(refreshedId)
+        : readSysfsBatteryDevice(refreshedId) || info;
     }
   }
 
   if (!info) {
-    const cached = getCachedBatterySample(devicePath);
+    const cached = getCachedBatterySample(deviceId) || (selected === 'auto' ? getBestCachedBatterySample() : null);
 
     if (!cached) {
       return { available: false };
     }
 
     info = cached;
+    deviceId = cached.deviceId;
   }
 
   const devices = await listBatteryDevices(false);
-  const deviceMeta = devices.find((entry) => entry.id === devicePath);
+  const deviceMeta = devices.find((entry) => entry.id === deviceId);
 
   return {
     available: true,
     percentage: info.percentage,
     state: normalizeState(info.state),
-    label: deviceMeta?.label || getDeviceLabel(devicePath, info.model),
+    label: deviceMeta?.label || info.label || getDeviceLabel(deviceId, info.model, info.manufacturer),
     model: info.model || '',
-    path: devicePath,
+    manufacturer: info.manufacturer || '',
+    path: deviceId,
     fromCache: Boolean(info.fromCache),
+    source: info.source || deviceMeta?.source || 'unknown',
   };
 }
 
