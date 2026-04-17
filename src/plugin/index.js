@@ -109,29 +109,66 @@ async function updateAudioImmediately(context) {
 
 
 
+function trimBatteryLabel(label) {
+  let value = String(label || '').trim();
+
+  if (!value) return 'UNKNOWN';
+
+  value = value
+    .replace(/^Logitech\s+/i, '')
+    .replace(/\s+LIGHTSPEED$/i, '')
+    .replace(/\s+Wireless$/i, '')
+    .replace(/\s+Mouse$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!value) {
+    value = String(label || '').trim();
+  }
+
+  return value.length > 12 ? `${value.slice(0, 11)}…` : value;
+}
+
+function renderBatteryImage(batteryData) {
+  if (!batteryData?.available) {
+    return generateButtonImage('🔋', 'BATTERY', 'N/A', 'NO DATA', -1);
+  }
+
+  return generateButtonImage(
+    '🔋',
+    'BATTERY',
+    `${batteryData.percentage}%`,
+    trimBatteryLabel(batteryData.label),
+    batteryData.percentage
+  );
+}
+
+function renderTimeImage(context) {
+  const now = new Date();
+
+  if (state.activeContexts[context]?.isEncoder) {
+    return generateDialImage(
+      '🕒',
+      'CLOCK',
+      now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+      -1
+    );
+  }
+
+  return generateButtonImage(
+    '🕒',
+    'CLOCK',
+    now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+    now.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }),
+    -1
+  );
+}
+
 async function updateBatteryImmediately(context) {
   const settings = getSettingsForContext(context);
   const batteryData = await getMouseBattery(settings.batteryDevice);
 
-  if (!batteryData.available) {
-    transport.sendUpdateIfChanged(
-      context,
-      generateButtonImage('🔋', 'BATTERY', 'N/A', 'NO DATA', -1)
-    );
-    return;
-  }
-
-  transport.sendUpdateIfChanged(
-    context,
-    generateCenteredHeaderButtonImage('🔋', 'BATTERY', `${batteryData.percentage}%`, batteryData.label, batteryData.percentage)
-  );
-}
-
-
-function trimBatteryLabel(label) {
-  const value = String(label || '').trim();
-  if (!value) return 'UNKNOWN';
-  return value.length > 14 ? `${value.slice(0, 13)}…` : value;
+  transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData));
 }
 
 async function updatePingImmediately(context) {
@@ -406,6 +443,16 @@ async function getCachedNetworkStats(cache, networkInterface = '') {
   return cache.get(key);
 }
 
+async function getCachedBatteryData(cache, batteryDevice = 'auto') {
+  const key = String(batteryDevice || '').trim() || 'auto';
+
+  if (!cache.has(key)) {
+    cache.set(key, getMouseBattery(key));
+  }
+
+  return cache.get(key);
+}
+
 function getCachedGpuStats(cache, gpuSelector = 'auto') {
   const key = String(gpuSelector || '').trim() || 'auto';
 
@@ -429,9 +476,9 @@ async function pollOnce() {
     let memData = {};
     let diskData = [];
     let audioData = { available: false, vol: 0, muted: false };
-    let batteryData = { available: false, percentage: 0, state: 'NO DATA' };
     let procData = state.procCache.data;
     const networkStatsCache = new Map();
+    const batteryDataCache = new Map();
     const gpuStatsCache = new Map();
 
     const needsCpu = actionsList.includes(ACTIONS.cpu);
@@ -441,7 +488,6 @@ async function pollOnce() {
     const needsAudio = actionsList.includes(ACTIONS.audio);
     const needsGpu = actionsList.includes(ACTIONS.gpu) || actionsList.includes(ACTIONS.vram);
     const needsBrightness = actionsList.includes(ACTIONS.monbright);
-    const needsBattery = actionsList.includes(ACTIONS.battery);
 
     const promises = [];
 
@@ -490,12 +536,6 @@ async function pollOnce() {
       });
     }
 
-    if (needsBattery) {
-      trackPromise(promises, 'getMouseBattery', async () => {
-        batteryData = await getMouseBattery();
-      });
-    }
-
     await Promise.allSettled(promises);
 
     const cpuPower = needsCpu ? getCpuPower() : { available: false, watts: 0 };
@@ -527,10 +567,8 @@ async function pollOnce() {
       }
 
       if (action === ACTIONS.battery) {
-        const image = !batteryData.available
-          ? generateButtonImage('🔋', 'BATTERY', 'N/A', 'NO DATA', -1)
-          : generateButtonImage('🔋', 'BATTERY', `${batteryData.percentage}%`, trimBatteryLabel(batteryData.label), batteryData.percentage);
-        transport.sendUpdateIfChanged(context, image);
+        const batteryData = await getCachedBatteryData(batteryDataCache, settings.batteryDevice);
+        transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData));
         continue;
       }
 
@@ -619,14 +657,7 @@ async function pollOnce() {
           image = unavailableButton('🔥', 'TOP', 'IDLE');
         }
       } else if (action === ACTIONS.time) {
-        const now = new Date();
-        image = generateButtonImage(
-          '🕒',
-          'CLOCK',
-          now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
-          now.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }),
-          -1
-        );
+        image = renderTimeImage(context);
       }
 
       if (image) {
