@@ -1,12 +1,15 @@
 :root {
   color-scheme: dark;
-  --bg: #111318;
-  --card: #181c23;
-  --border: #2a313d;
-  --text: #f5f7fa;
-  --muted: #9aa4b2;
-  --accent: #ef4444;
-  --input: #0f1218;
+  --bg: #0f1115;
+  --card: #151922;
+  --card-2: #12161e;
+  --border: #2a3140;
+  --border-soft: #222836;
+  --text: #eef2f7;
+  --muted: #95a0b2;
+  --accent: #394150;
+  --accent-hover: #444d5f;
+  --input: #11161e;
 }
 
 * {
@@ -23,55 +26,63 @@ body {
 }
 
 body {
-  padding: 12px;
+  padding: 14px;
 }
 
 .wrap {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+  max-width: 980px;
 }
 
 h1 {
-  margin: 0 0 2px 0;
-  font-size: 18px;
+  margin: 0;
+  font-size: 17px;
   line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px;
-  gap: 10px;
+  grid-template-columns: minmax(0, 560px) 168px;
+  justify-content: space-between;
+  gap: 14px;
   align-items: start;
 }
 
 .mainColumn,
 .sideColumn {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+  align-content: start;
 }
 
 .settingsGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
+  align-content: start;
 }
 
 .card {
   display: grid;
-  gap: 6px;
-  padding: 10px;
-  border: 1px solid var(--border);
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
   background: var(--card);
-  border-radius: 10px;
+  border-radius: 12px;
+  box-shadow: none;
 }
 
 .sideCard {
-  gap: 8px;
+  gap: 10px;
+  background: var(--card-2);
 }
 
 .stack {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .hidden {
@@ -81,26 +92,50 @@ h1 {
 label {
   font-size: 12px;
   font-weight: 700;
+  color: var(--text);
 }
 
 input,
 select,
 button {
   width: 100%;
-  border-radius: 8px;
+  border-radius: 9px;
   border: 1px solid var(--border);
   background: var(--input);
   color: var(--text);
-  padding: 8px 10px;
+  padding: 9px 11px;
   font: inherit;
-  min-height: 36px;
+  min-height: 38px;
+  outline: none;
+  box-shadow: none;
+}
+
+input::placeholder {
+  color: #788396;
+}
+
+input:focus,
+select:focus {
+  border-color: #3a4456;
+  background: #121821;
 }
 
 button {
   background: var(--accent);
-  border: none;
+  border-color: var(--accent);
   cursor: pointer;
   font-weight: 700;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+button:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+button:active {
+  background: #4a5568;
+  border-color: #4a5568;
 }
 
 .hint,
@@ -108,7 +143,11 @@ button {
   margin: 0;
   color: var(--muted);
   font-size: 11px;
-  line-height: 1.35;
+  line-height: 1.4;
+}
+
+.status {
+  min-height: 16px;
 }
 
 @media (max-width: 720px) {
@@ -118,5 +157,9 @@ button {
 
   .settingsGrid {
     grid-template-columns: 1fr;
+  }
+
+  .wrap {
+    max-width: none;
   }
 }
