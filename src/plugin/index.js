@@ -157,7 +157,7 @@ function trimFanLabel(label) {
 
 function getFanValueText(fanData) {
   if (Number.isFinite(fanData?.rpm)) {
-    return `${fanData.rpm} RPM`;
+    return `${fanData.rpm}`;
   }
 
   if (Number.isFinite(fanData?.percent)) {
@@ -185,11 +185,11 @@ function getFanBarPercent(fanData) {
 
 function renderFanImage(fanData, settings = {}) {
   if (!fanData?.available) {
-    return unavailableButton('🌀', 'FAN', 'NO FAN');
+    return unavailableButton('🌀', 'FAN SPD', 'NO FAN');
   }
 
   const name = String(settings.fanLabel || '').trim() || fanData.displayName || 'Fan';
-  return generateButtonImage('🌀', 'FAN', getFanValueText(fanData), trimFanLabel(name), getFanBarPercent(fanData));
+  return generateButtonImage('🌀', 'FAN SPD', getFanValueText(fanData), trimFanLabel(name), getFanBarPercent(fanData));
 }
 
 function renderTimeImage(context) {

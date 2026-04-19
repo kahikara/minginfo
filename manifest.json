@@ -148,7 +148,7 @@
     },
     {
       "Icon": "icons/icon_fan",
-      "Name": "Fan",
+      "Name": "Fan Speed",
       "UUID": "com.kahikara.opendeck-redline.fan",
       "States": [
         {
