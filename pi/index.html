@@ -8,7 +8,6 @@
 </head>
 <body>
   <main class="wrap">
-
     <section class="layout">
       <section class="mainColumn">
         <div class="settingsGrid">
@@ -16,21 +15,6 @@
             <label for="pingHost">Ping host</label>
             <input id="pingHost" type="text" placeholder="1.1.1.1">
             <p class="hint">Used by the Ping action.</p>
-          </section>
-
-          <section id="pressActionWrap" class="card hidden">
-            <label for="pressAction">On press</label>
-            <select id="pressAction">
-              <option value="default">Default action</option>
-              <option value="command">Run command</option>
-            </select>
-
-            <div id="pressCommandWrap" class="stack hidden">
-              <label for="pressCommand">Command</label>
-              <input id="pressCommand" type="text" placeholder="systemctl --user restart my-monitor.service">
-            </div>
-
-            <p class="hint">Optional custom press action for this button or encoder press.</p>
           </section>
 
           <section id="networkInterfaceWrap" class="card hidden">
@@ -44,7 +28,7 @@
             <select id="gpuSelector">
               <option value="auto">Auto</option>
             </select>
-            <p class="hint">Used by the GPU and VRAM actions. Auto keeps the current behavior.</p>
+            <p class="hint">Used by the GPU and VRAM actions.</p>
           </section>
 
           <section id="batterySelectorWrap" class="card hidden">
@@ -52,7 +36,21 @@
             <select id="batteryDevice">
               <option value="auto">Auto</option>
             </select>
-            <p class="hint">Used by the Battery action. Auto picks the preferred UPower device.</p>
+            <p class="hint">Used by the Battery action.</p>
+          </section>
+
+          <section id="fanSelectorWrap" class="card hidden">
+            <label for="fanSelector">Fan Speed selector</label>
+            <select id="fanSelector">
+              <option value="auto">Auto</option>
+            </select>
+            <p class="hint">Used by the Fan Speed action.</p>
+          </section>
+
+          <section id="fanLabelWrap" class="card hidden">
+            <label for="fanLabel">Custom name</label>
+            <input id="fanLabel" type="text" placeholder="Optional custom name">
+            <p class="hint">Optional override for the displayed fan name.</p>
           </section>
 
           <section id="volumeStepWrap" class="card hidden">
@@ -81,6 +79,21 @@
             </select>
             <p class="hint">Used by the Top action.</p>
           </section>
+
+          <section id="pressActionWrap" class="card hidden">
+            <label for="pressAction">On press</label>
+            <select id="pressAction">
+              <option value="default">Default action</option>
+              <option value="command">Run command</option>
+            </select>
+
+            <div id="pressCommandWrap" class="stack hidden">
+              <label for="pressCommand">Command</label>
+              <input id="pressCommand" type="text" placeholder="systemctl --user restart my-monitor.service">
+            </div>
+
+            <p class="hint">Optional custom press action for this button or encoder press.</p>
+          </section>
         </div>
       </section>
 
@@ -94,7 +107,9 @@
             <option value="10">10 seconds</option>
           </select>
           <p class="hint">Plugin wide polling interval.</p>
+        </section>
 
+        <section class="card utilityCard utilityActionsCard">
           <button id="saveButton" type="button">Save</button>
           <p id="statusText" class="status">Inspector loaded</p>
         </section>

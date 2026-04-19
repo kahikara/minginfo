@@ -13,6 +13,7 @@ const ACTIONS = Object.freeze({
   audio: `${PLUGIN_PREFIX}.audio`,
   timer: `${PLUGIN_PREFIX}.timer`,
   monbright: `${PLUGIN_PREFIX}.monbright`,
+  fan: `${PLUGIN_PREFIX}.fan`,
   battery: `${PLUGIN_PREFIX}.battery`,
 });
 
@@ -21,6 +22,8 @@ const DEFAULT_SETTINGS = Object.freeze({
   networkInterface: '',
   gpuSelector: 'auto',
   batteryDevice: 'auto',
+  fanSelector: 'auto',
+  fanLabel: '',
   volumeStep: 2,
   brightnessStep: 5,
   timerStep: 1,
