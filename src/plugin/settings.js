@@ -29,6 +29,15 @@ function normalizeSettings(settings = {}) {
     normalized.batteryDevice = batteryDevice || DEFAULT_SETTINGS.batteryDevice;
   }
 
+  if (typeof settings.fanSelector === 'string') {
+    const fanSelector = settings.fanSelector.trim();
+    normalized.fanSelector = fanSelector || DEFAULT_SETTINGS.fanSelector;
+  }
+
+  if (typeof settings.fanLabel === 'string') {
+    normalized.fanLabel = settings.fanLabel.trim();
+  }
+
   if (settings.volumeStep !== undefined) {
     normalized.volumeStep = clamp(Number.parseInt(settings.volumeStep, 10) || DEFAULT_SETTINGS.volumeStep, 1, 20);
   }

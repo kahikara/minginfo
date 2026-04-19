@@ -6,6 +6,8 @@
     networkInterface: $('networkInterface'),
     gpuSelector: $('gpuSelector'),
     batteryDevice: $('batteryDevice'),
+    fanSelector: $('fanSelector'),
+    fanLabel: $('fanLabel'),
     volumeStep: $('volumeStep'),
     brightnessStep: $('brightnessStep'),
     timerStep: $('timerStep'),
@@ -15,24 +17,35 @@
     pressCommand: $('pressCommand'),
   };
 
-  const pressCommandWrap = $('pressCommandWrap');
+  const pingHostWrap = $('pingHostWrap');
+  const networkInterfaceWrap = $('networkInterfaceWrap');
   const gpuSelectorWrap = $('gpuSelectorWrap');
   const batterySelectorWrap = $('batterySelectorWrap');
+  const fanSelectorWrap = $('fanSelectorWrap');
+  const fanLabelWrap = $('fanLabelWrap');
+  const volumeStepWrap = $('volumeStepWrap');
+  const brightnessStepWrap = $('brightnessStepWrap');
+  const timerStepWrap = $('timerStepWrap');
+  const topModeWrap = $('topModeWrap');
+  const pressActionWrap = $('pressActionWrap');
+  const pressCommandWrap = $('pressCommandWrap');
   const saveButton = $('saveButton');
   const statusText = $('statusText');
 
   let websocket = null;
-  let uuid = null;
   let actionInfo = null;
   let actionContext = null;
   let currentGpuOptions = [];
   let currentBatteryOptions = [];
+  let currentFanOptions = [];
 
   const DEFAULT_SETTINGS = Object.freeze({
     pingHost: '1.1.1.1',
     networkInterface: '',
     gpuSelector: 'auto',
     batteryDevice: 'auto',
+    fanSelector: 'auto',
+    fanLabel: '',
     volumeStep: 2,
     brightnessStep: 5,
     timerStep: 1,
@@ -46,90 +59,121 @@
     statusText.textContent = text;
   }
 
+  function getActionId() {
+    return actionInfo?.action || '';
+  }
+
+  function actionUsesPingHost() {
+    return getActionId().endsWith('.ping');
+  }
+
+  function actionUsesNetworkInterface() {
+    return getActionId().endsWith('.net');
+  }
+
   function actionUsesGpuSelector() {
-    const actionId = actionInfo?.action || '';
+    const actionId = getActionId();
     return actionId.endsWith('.gpu') || actionId.endsWith('.vram');
   }
 
   function actionUsesBatterySelector() {
-    const actionId = actionInfo?.action || '';
-    return actionId.endsWith('.battery');
+    return getActionId().endsWith('.battery');
   }
 
-  function updateGpuSelectorVisibility() {
-    gpuSelectorWrap.classList.toggle('hidden', !actionUsesGpuSelector());
+  function actionUsesFanSelector() {
+    return getActionId().endsWith('.fan');
   }
 
-  function updateBatterySelectorVisibility() {
-    batterySelectorWrap.classList.toggle('hidden', !actionUsesBatterySelector());
+  function actionUsesFanLabel() {
+    return getActionId().endsWith('.fan');
   }
 
-  function renderGpuOptions(options = [], selectedValue = DEFAULT_SETTINGS.gpuSelector) {
-    const merged = [{ id: DEFAULT_SETTINGS.gpuSelector, label: 'Auto' }];
-
-    if (Array.isArray(options)) {
-      for (const option of options) {
-        const id = typeof option?.id === 'string' ? option.id.trim() : '';
-        if (!id || merged.some((entry) => entry.id === id)) {
-          continue;
-        }
-
-        const label = typeof option?.label === 'string' && option.label.trim() ? option.label.trim() : id;
-        merged.push({ id, label });
-      }
-    }
-
-    const desiredValue = String(selectedValue || DEFAULT_SETTINGS.gpuSelector).trim() || DEFAULT_SETTINGS.gpuSelector;
-    if (!merged.some((entry) => entry.id === desiredValue)) {
-      merged.push({ id: desiredValue, label: `${desiredValue} (missing)` });
-    }
-
-    fields.gpuSelector.innerHTML = '';
-
-    for (const option of merged) {
-      const node = document.createElement('option');
-      node.value = option.id;
-      node.textContent = option.label;
-      fields.gpuSelector.appendChild(node);
-    }
-
-    fields.gpuSelector.value = desiredValue;
+  function actionUsesVolumeStep() {
+    return getActionId().endsWith('.audio');
   }
 
-  function renderBatteryOptions(options = [], selectedValue = DEFAULT_SETTINGS.batteryDevice) {
-    const merged = [{ id: DEFAULT_SETTINGS.batteryDevice, label: 'Auto' }];
+  function actionUsesBrightnessStep() {
+    return getActionId().endsWith('.monbright');
+  }
 
-    if (Array.isArray(options)) {
-      for (const option of options) {
-        const id = typeof option?.id === 'string' ? option.id.trim() : '';
-        if (!id || merged.some((entry) => entry.id === id)) {
-          continue;
-        }
+  function actionUsesTimerStep() {
+    return getActionId().endsWith('.timer');
+  }
 
-        const label = typeof option?.label === 'string' && option.label.trim() ? option.label.trim() : id;
-        merged.push({ id, label });
-      }
-    }
+  function actionUsesTopMode() {
+    return getActionId().endsWith('.top');
+  }
 
-    const desiredValue = String(selectedValue || DEFAULT_SETTINGS.batteryDevice).trim() || DEFAULT_SETTINGS.batteryDevice;
-    if (!merged.some((entry) => entry.id === desiredValue)) {
-      merged.push({ id: desiredValue, label: `${desiredValue} (missing)` });
-    }
-
-    fields.batteryDevice.innerHTML = '';
-
-    for (const option of merged) {
-      const node = document.createElement('option');
-      node.value = option.id;
-      node.textContent = option.label;
-      fields.batteryDevice.appendChild(node);
-    }
-
-    fields.batteryDevice.value = desiredValue;
+  function actionUsesPressAction() {
+    const actionId = getActionId();
+    return actionId.endsWith('.cpu')
+      || actionId.endsWith('.gpu')
+      || actionId.endsWith('.ping')
+      || actionId.endsWith('.audio')
+      || actionId.endsWith('.timer')
+      || actionId.endsWith('.monbright')
+      || actionId.endsWith('.battery');
   }
 
   function updatePressCommandVisibility() {
-    pressCommandWrap.classList.toggle('hidden', fields.pressAction.value !== 'command');
+    const showPressCommand = actionUsesPressAction() && fields.pressAction.value === 'command';
+    pressCommandWrap.classList.toggle('hidden', !showPressCommand);
+  }
+
+  function updateFieldVisibility() {
+    pingHostWrap.classList.toggle('hidden', !actionUsesPingHost());
+    networkInterfaceWrap.classList.toggle('hidden', !actionUsesNetworkInterface());
+    gpuSelectorWrap.classList.toggle('hidden', !actionUsesGpuSelector());
+    batterySelectorWrap.classList.toggle('hidden', !actionUsesBatterySelector());
+    fanSelectorWrap.classList.toggle('hidden', !actionUsesFanSelector());
+    fanLabelWrap.classList.toggle('hidden', !actionUsesFanLabel());
+    volumeStepWrap.classList.toggle('hidden', !actionUsesVolumeStep());
+    brightnessStepWrap.classList.toggle('hidden', !actionUsesBrightnessStep());
+    timerStepWrap.classList.toggle('hidden', !actionUsesTimerStep());
+    topModeWrap.classList.toggle('hidden', !actionUsesTopMode());
+    pressActionWrap.classList.toggle('hidden', !actionUsesPressAction());
+    updatePressCommandVisibility();
+  }
+
+  function renderSelectOptions(selectNode, options = [], selectedValue = 'auto') {
+    const merged = [{ id: 'auto', label: 'Auto' }];
+
+    for (const option of Array.isArray(options) ? options : []) {
+      const id = typeof option?.id === 'string' ? option.id.trim() : '';
+      if (!id || merged.some((entry) => entry.id === id)) {
+        continue;
+      }
+
+      const label = typeof option?.label === 'string' && option.label.trim() ? option.label.trim() : id;
+      merged.push({ id, label });
+    }
+
+    const desiredValue = String(selectedValue || 'auto').trim() || 'auto';
+    if (!merged.some((entry) => entry.id === desiredValue)) {
+      merged.push({ id: desiredValue, label: `${desiredValue} (missing)` });
+    }
+
+    selectNode.innerHTML = '';
+    for (const option of merged) {
+      const node = document.createElement('option');
+      node.value = option.id;
+      node.textContent = option.label;
+      selectNode.appendChild(node);
+    }
+
+    selectNode.value = desiredValue;
+  }
+
+  function renderGpuOptions(options = [], selectedValue = DEFAULT_SETTINGS.gpuSelector) {
+    renderSelectOptions(fields.gpuSelector, options, selectedValue);
+  }
+
+  function renderBatteryOptions(options = [], selectedValue = DEFAULT_SETTINGS.batteryDevice) {
+    renderSelectOptions(fields.batteryDevice, options, selectedValue);
+  }
+
+  function renderFanOptions(options = [], selectedValue = DEFAULT_SETTINGS.fanSelector) {
+    renderSelectOptions(fields.fanSelector, options, selectedValue);
   }
 
   function normalizeSettings(settings = {}) {
@@ -153,6 +197,15 @@
     if (typeof settings.batteryDevice === 'string') {
       const batteryDevice = settings.batteryDevice.trim();
       normalized.batteryDevice = batteryDevice || DEFAULT_SETTINGS.batteryDevice;
+    }
+
+    if (typeof settings.fanSelector === 'string') {
+      const fanSelector = settings.fanSelector.trim();
+      normalized.fanSelector = fanSelector || DEFAULT_SETTINGS.fanSelector;
+    }
+
+    if (typeof settings.fanLabel === 'string') {
+      normalized.fanLabel = settings.fanLabel.trim();
     }
 
     if (settings.volumeStep !== undefined) {
@@ -192,6 +245,8 @@
     fields.networkInterface.value = normalized.networkInterface;
     renderGpuOptions(currentGpuOptions, normalized.gpuSelector);
     renderBatteryOptions(currentBatteryOptions, normalized.batteryDevice);
+    renderFanOptions(currentFanOptions, normalized.fanSelector);
+    fields.fanLabel.value = normalized.fanLabel;
     fields.volumeStep.value = String(normalized.volumeStep);
     fields.brightnessStep.value = String(normalized.brightnessStep);
     fields.timerStep.value = String(normalized.timerStep);
@@ -200,9 +255,7 @@
     fields.pressAction.value = normalized.pressAction;
     fields.pressCommand.value = normalized.pressCommand;
 
-    updatePressCommandVisibility();
-    updateGpuSelectorVisibility();
-    updateBatterySelectorVisibility();
+    updateFieldVisibility();
   }
 
   function collectSettings() {
@@ -211,6 +264,8 @@
       networkInterface: fields.networkInterface.value,
       gpuSelector: fields.gpuSelector.value,
       batteryDevice: fields.batteryDevice.value,
+      fanSelector: fields.fanSelector.value,
+      fanLabel: fields.fanLabel.value,
       volumeStep: fields.volumeStep.value,
       brightnessStep: fields.brightnessStep.value,
       timerStep: fields.timerStep.value,
@@ -230,7 +285,7 @@
   }
 
   function extractIncomingSettings(payload = {}) {
-    const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
+    const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'fanSelector', 'fanLabel', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
 
     function visit(value, depth = 0) {
       if (!value || typeof value !== 'object' || depth > 6) {
@@ -292,6 +347,18 @@
     return [];
   }
 
+  function extractFanOptions(payload = {}) {
+    if (Array.isArray(payload.fanOptions)) {
+      return payload.fanOptions;
+    }
+
+    if (payload.settings && Array.isArray(payload.settings.fanOptions)) {
+      return payload.settings.fanOptions;
+    }
+
+    return [];
+  }
+
   function saveSettings() {
     const settings = collectSettings();
 
@@ -332,8 +399,6 @@
   }
 
   window.connectElgatoStreamDeckSocket = function connectElgatoStreamDeckSocket(inPort, inUUID, inRegisterEvent, inInfo, inActionInfo) {
-    uuid = inUUID;
-
     try {
       actionInfo = inActionInfo ? JSON.parse(inActionInfo) : null;
     } catch (error) {
@@ -342,8 +407,7 @@
     }
 
     actionContext = actionInfo?.context || null;
-    updateGpuSelectorVisibility();
-    updateBatterySelectorVisibility();
+    updateFieldVisibility();
 
     applySettings(extractIncomingSettings(actionInfo?.payload || {}));
     websocket = new WebSocket(`ws://127.0.0.1:${inPort}`);
@@ -386,10 +450,19 @@
           renderBatteryOptions(currentBatteryOptions, fields.batteryDevice.value);
         }
 
+        if (Array.isArray(message.payload?.fanOptions)) {
+          currentFanOptions = extractFanOptions(message.payload);
+          renderFanOptions(currentFanOptions, fields.fanSelector.value);
+        }
+
         if (Object.keys(incomingSettings).length > 0) {
           applySettings(incomingSettings);
           setStatus('Settings synced');
-        } else if (Array.isArray(message.payload?.gpuOptions) || Array.isArray(message.payload?.batteryOptions)) {
+        } else if (
+          Array.isArray(message.payload?.gpuOptions)
+          || Array.isArray(message.payload?.batteryOptions)
+          || Array.isArray(message.payload?.fanOptions)
+        ) {
           setStatus('Options updated');
         }
       }

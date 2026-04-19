@@ -14,6 +14,7 @@ const { getNetworkStats } = require('./system/network');
 const { refreshMonitorBrightness, setMonitorBrightness, getBrightnessState } = require('./system/brightness');
 const { getAudio, adjustVolume, toggleMute } = require('./system/audio');
 const { listBatteryDevices, getMouseBattery } = require('./system/battery');
+const { listAvailableFans, getFanStats } = require('./system/fans');
 const { getPingState, getPing } = require('./system/ping');
 const { getTopProcessSummary } = require('./system/top');
 const { summarizeDisks } = require('./system/disk');
@@ -149,6 +150,48 @@ function renderBatteryImage(batteryData) {
   );
 }
 
+function trimFanLabel(label) {
+  const value = String(label || '').trim() || 'UNKNOWN';
+  return value.length > 12 ? `${value.slice(0, 11)}…` : value;
+}
+
+function getFanValueText(fanData) {
+  if (Number.isFinite(fanData?.rpm)) {
+    return `${fanData.rpm} RPM`;
+  }
+
+  if (Number.isFinite(fanData?.percent)) {
+    return `${fanData.percent}%`;
+  }
+
+  return 'N/A';
+}
+
+function getFanBarPercent(fanData) {
+  if (Number.isFinite(fanData?.rpm)) {
+    if (fanData.rpm <= 0) {
+      return 0;
+    }
+
+    return clamp(Math.round((fanData.rpm / 3000) * 100), 0, 100);
+  }
+
+  if (Number.isFinite(fanData?.percent)) {
+    return clamp(fanData.percent, 0, 100);
+  }
+
+  return -1;
+}
+
+function renderFanImage(fanData, settings = {}) {
+  if (!fanData?.available) {
+    return unavailableButton('🌀', 'FAN', 'NO FAN');
+  }
+
+  const name = String(settings.fanLabel || '').trim() || fanData.displayName || 'Fan';
+  return generateButtonImage('🌀', 'FAN', getFanValueText(fanData), trimFanLabel(name), getFanBarPercent(fanData));
+}
+
 function renderTimeImage(context) {
   const now = new Date();
 
@@ -174,6 +217,12 @@ async function updateBatteryImmediately(context) {
   const settings = getSettingsForContext(context);
   const batteryData = await getMouseBattery(settings.batteryDevice);
   transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData));
+}
+
+async function updateFanImmediately(context) {
+  const settings = getSettingsForContext(context);
+  const fanData = getFanStats(settings.fanSelector);
+  transport.sendUpdateIfChanged(context, renderFanImage(fanData, settings));
 }
 
 async function updatePingImmediately(context) {
@@ -215,12 +264,27 @@ async function sendBatteryOptionsToPropertyInspector(context) {
   });
 }
 
+function sendFanOptionsToPropertyInspector(context) {
+  transport.safeSend({
+    event: 'sendToPropertyInspector',
+    context,
+    payload: {
+      settings: getSettingsForContext(context),
+      fanOptions: listAvailableFans(),
+    },
+  });
+}
+
 function actionUsesGpuOptions(actionId) {
   return actionId === ACTIONS.gpu || actionId === ACTIONS.vram;
 }
 
 function actionUsesBatteryOptions(actionId) {
   return actionId === ACTIONS.battery;
+}
+
+function actionUsesFanOptions(actionId) {
+  return actionId === ACTIONS.fan;
 }
 
 async function sendPropertyInspectorOptions(context, actionId) {
@@ -230,6 +294,10 @@ async function sendPropertyInspectorOptions(context, actionId) {
 
   if (actionUsesBatteryOptions(actionId)) {
     await sendBatteryOptionsToPropertyInspector(context);
+  }
+
+  if (actionUsesFanOptions(actionId)) {
+    sendFanOptionsToPropertyInspector(context);
   }
 }
 
@@ -246,6 +314,11 @@ async function refreshImmediateAction(context, actionId) {
 
   if (actionId === ACTIONS.battery) {
     await updateBatteryImmediately(context);
+    return;
+  }
+
+  if (actionId === ACTIONS.fan) {
+    await updateFanImmediately(context);
     return;
   }
 
@@ -366,7 +439,7 @@ async function runCustomPressCommand(context, settings, resolvedAction) {
 }
 
 function extractIncomingSettings(payload = {}) {
-  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand', ];
+  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'fanSelector', 'fanLabel', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
 
   function visit(value, depth = 0) {
     if (!value || typeof value !== 'object' || depth > 6) {
@@ -504,6 +577,16 @@ async function getCachedBatteryData(cache, batteryDevice = 'auto') {
   return cache.get(key);
 }
 
+function getCachedFanData(cache, fanSelector = 'auto') {
+  const key = String(fanSelector || '').trim() || 'auto';
+
+  if (!cache.has(key)) {
+    cache.set(key, getFanStats(key));
+  }
+
+  return cache.get(key);
+}
+
 function getCachedGpuStats(cache, gpuSelector = 'auto') {
   const key = String(gpuSelector || '').trim() || 'auto';
 
@@ -530,6 +613,7 @@ async function pollOnce() {
     let procData = state.procCache.data;
     const networkStatsCache = new Map();
     const batteryDataCache = new Map();
+    const fanDataCache = new Map();
     const gpuStatsCache = new Map();
 
     const needsCpu = actionsList.includes(ACTIONS.cpu);
@@ -619,6 +703,12 @@ async function pollOnce() {
       if (action === ACTIONS.battery) {
         const batteryData = await getCachedBatteryData(batteryDataCache, settings.batteryDevice);
         transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData));
+        continue;
+      }
+
+      if (action === ACTIONS.fan) {
+        const fanData = getCachedFanData(fanDataCache, settings.fanSelector);
+        transport.sendUpdateIfChanged(context, renderFanImage(fanData, settings));
         continue;
       }
 

@@ -147,6 +147,17 @@
       "PropertyInspectorPath": "pi/index.html"
     },
     {
+      "Icon": "icons/icon_fan",
+      "Name": "Fan",
+      "UUID": "com.kahikara.opendeck-redline.fan",
+      "States": [
+        {
+          "Image": "icons/actionDefaultImage"
+        }
+      ],
+      "PropertyInspectorPath": "pi/index.html"
+    },
+    {
       "Icon": "icons/icon_battery",
       "Name": "Battery",
       "UUID": "com.kahikara.opendeck-redline.battery",
