@@ -66,21 +66,30 @@ function buildHwmonDisplayName(chip, fanKey, label = '') {
     return 'AMD GPU Fan';
   }
 
-  const cleanChip = String(chip || 'hwmon').replace(/_/g, ' ').trim();
-  return `${cleanChip} ${fanKey}`;
+  const fanNumber = Number.parseInt(String(fanKey || '').replace(/^fan/i, ''), 10);
+  if (Number.isFinite(fanNumber)) {
+    return `System Fan ${fanNumber}`;
+  }
+
+  return 'System Fan';
 }
 
 function scoreFan(entry = {}) {
   const name = String(entry.displayName || '').toLowerCase();
+  const rpm = Number.isFinite(entry.rpm) ? entry.rpm : null;
+  const hasRpm = rpm !== null && rpm > 0;
   let score = 0;
 
-  if (/cpu/.test(name)) score += 300;
-  if (/pump/.test(name)) score += 240;
-  if (/rear|front|case|chassis|system/.test(name)) score += 180;
-  if (entry.isGpu) score += 140;
+  if (/cpu/.test(name) && hasRpm) score += 500;
+  if (/pump/.test(name) && hasRpm) score += 440;
+  if (/rear|front|case|chassis|system/.test(name) && hasRpm) score += 260;
+  if (!entry.isGpu && hasRpm) score += 220;
+  if (entry.isGpu && hasRpm) score += 180;
   if (entry.label) score += 80;
-  if (Number.isFinite(entry.rpm) && entry.rpm > 0) score += 60;
-  if (Number.isFinite(entry.percent)) score += 30;
+  if (hasRpm) score += 60;
+  if (Number.isFinite(entry.percent)) score += 20;
+
+  if (rpm === 0) score -= 500;
 
   return score;
 }
@@ -189,7 +198,9 @@ function scanNvidiaFans() {
         })
     );
   } catch (error) {
-    warnOnce('fans-nvidia-scan-failed', `nvidia fan scan failed: ${error.message}`);
+    if (!/ENOENT/.test(String(error && error.message || ''))) {
+      warnOnce('fans-nvidia-scan-failed', `nvidia fan scan failed: ${error.message}`);
+    }
     return [];
   }
 }
