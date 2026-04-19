@@ -1,16 +1,16 @@
 :root {
   color-scheme: dark;
   --bg: #0b0f16;
-  --panel: #111722;
-  --panel-2: #0f1520;
-  --border: #1f2837;
-  --border-strong: #283245;
-  --text: #ecf1f8;
-  --muted: #8f9bad;
-  --input: #1f2430;
-  --input-focus: #252c39;
-  --button: #2c3442;
-  --button-hover: #384252;
+  --panel: #101620;
+  --panel-alt: #0e141d;
+  --border: #1d2533;
+  --border-strong: #273142;
+  --text: #eef2f7;
+  --muted: #8d99ac;
+  --input: #2a2d33;
+  --input-focus: #313642;
+  --button: #303a4c;
+  --button-hover: #3b4659;
 }
 
 * {
@@ -27,13 +27,13 @@ body {
 }
 
 body {
-  padding: 10px;
+  padding: 8px;
 }
 
 .wrap {
-  width: min(780px, 100%);
   display: grid;
-  gap: 10px;
+  gap: 8px;
+  width: 100%;
 }
 
 h1 {
@@ -42,42 +42,48 @@ h1 {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px;
+  grid-template-columns: auto 150px;
   gap: 10px;
   align-items: start;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .mainColumn,
 .sideColumn {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   align-content: start;
 }
 
 .settingsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, 270px);
+  justify-content: start;
+  gap: 8px;
   align-content: start;
 }
 
 .card {
   display: grid;
-  gap: 7px;
-  padding: 10px;
+  gap: 6px;
+  padding: 8px 9px;
   border: 1px solid var(--border);
-  background: linear-gradient(180deg, var(--panel), var(--panel-2));
-  border-radius: 14px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow: none;
+  min-width: 0;
 }
 
-.sideCard {
+.utilityCard {
+  width: 150px;
   gap: 8px;
+  background: var(--panel-alt);
 }
 
 .stack {
   display: grid;
-  gap: 7px;
+  gap: 6px;
 }
 
 .hidden {
@@ -85,7 +91,7 @@ h1 {
 }
 
 label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text);
 }
@@ -94,9 +100,9 @@ input,
 select,
 button {
   width: 100%;
-  min-height: 36px;
-  padding: 8px 11px;
-  border-radius: 10px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border-radius: 9px;
   border: 1px solid var(--border-strong);
   background: var(--input);
   color: var(--text);
@@ -106,16 +112,17 @@ button {
 }
 
 input::placeholder {
-  color: #778395;
+  color: #738095;
 }
 
 input:focus,
 select:focus {
   background: var(--input-focus);
-  border-color: #344056;
+  border-color: #354258;
 }
 
 button {
+  margin-top: 2px;
   background: var(--button);
   border-color: var(--button);
   font-weight: 700;
@@ -138,23 +145,24 @@ button:active {
   margin: 0;
   color: var(--muted);
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .status {
-  min-height: 16px;
+  min-height: 14px;
 }
 
 @media (max-width: 720px) {
-  .wrap {
-    width: 100%;
-  }
-
   .layout {
     grid-template-columns: 1fr;
+    width: 100%;
   }
 
   .settingsGrid {
     grid-template-columns: 1fr;
+  }
+
+  .utilityCard {
+    width: 100%;
   }
 }
