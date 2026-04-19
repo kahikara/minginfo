@@ -1,12 +1,10 @@
 # Redline Monitor
 
-A high performance system information dashboard for OpenDeck on Linux. It provides compact live monitoring cards for keys and encoders, supports AMD, Intel, and NVIDIA hardware, and includes optional custom on press commands.
+Compact Linux monitoring and control plugin for OpenDeck.
 
 ![Redline Monitor Dashboard](assets/screenshot.png)
 
-## Features
-
-Redline Monitor includes actions for:
+## Actions
 
 * CPU
 * GPU
@@ -22,64 +20,62 @@ Redline Monitor includes actions for:
 * Monitor Brightness
 * Battery
 
-Additional highlights:
+## Highlights
 
-* Linux focused with support for AMD, Intel, and NVIDIA hardware
-* Compact monitoring cards for keys and encoders
-* Multi GPU support with a stable GPU selector
-* Battery device selector with stable sysfs based detection
-* Per button and per encoder press custom command support
-* Intelligent disk aggregation
-* Configurable refresh rate
-* Custom ping target
-* Optional network interface override
+* AMD, Intel, and NVIDIA support
+* Multi GPU selector for GPU and VRAM
+* Stable battery device selector
+* sysfs first battery handling for better Linux reliability
+* Key and encoder actions
+* Optional custom on press command
+* Compact monitoring cards with action specific settings
 
-## Action details
+## What each action shows
 
-* **CPU** shows load, temperature, and CPU power. The progress bar represents temperature with a maximum scale of 100°C. Existing AMD behavior is preserved, and Intel package power is supported through Intel RAPL. Press opens Plasma System Monitor by default, or runs your custom command.
-* **GPU** shows usage, power, and temperature. The progress bar represents temperature with a maximum scale of 100°C. Existing AMD behavior is preserved, NVIDIA GPUs are supported through `nvidia-smi`, and Intel GPUs are supported through sysfs.
-* **VRAM** shows used and total GPU memory for the selected GPU.
+* **CPU** shows load, temperature, and CPU power. The bar represents temperature with a 100°C cap.
+* **GPU** shows usage, power, and temperature. The bar represents temperature with a 100°C cap.
+* **VRAM** shows used and total VRAM for the selected GPU.
 * **RAM** shows used and total system memory.
 * **Network** shows download and upload throughput.
-* **Disk** shows combined disk usage and free space.
-* **Ping** shows latency to a custom host. The progress bar is capped at 100 ms. Press forces an immediate refresh by default, or runs your custom command.
-* **Top Proc** shows the current top CPU consumer.
-* **Time and Date** shows local time and date on keys and supports time display on encoders.
-* **Audio Volume** is available as key and encoder action. Press toggles mute by default, or runs your custom command.
-* **Alarm Timer** is available as encoder action. Press controls timer state by default, or runs your custom command.
-* **Monitor Brightness** is available as encoder action through DDC or CI. Press resets brightness by default, or runs your custom command.
-* **Battery** shows the selected battery device percentage and label. A charging icon is shown while the device is charging.
+* **Disk** shows combined usage and free space.
+* **Ping** shows latency to a custom host. The bar is capped at 100 ms.
+* **Top Proc** shows the top CPU consumer.
+* **Time and Date** works on keys and encoders.
+* **Audio Volume** supports key and encoder control.
+* **Alarm Timer** is encoder based.
+* **Monitor Brightness** is encoder based through DDC or CI.
+* **Battery** shows the selected battery device, percentage, and charging state.
 
 ## Settings
 
-The property inspector supports these settings:
+Only relevant settings are shown for the selected action.
 
-* **Ping host** for the Ping action
-* **Network interface override** for the Network action
-* **GPU selector** for GPU and VRAM
-* **Battery device selector** for Battery
-* **Volume step** for Audio Volume
-* **Brightness step** for Monitor Brightness
-* **Timer step in minutes** for Alarm Timer
-* **Top process mode** with grouped or raw process view
-* **Refresh rate** as plugin wide polling interval
-* **On press** to choose between the default action and a custom command
-* **Command** for your custom shell command
+Available settings include:
 
-Custom press settings are stored per button or per encoder press context.
+* Ping host
+* Network interface override
+* GPU selector
+* Battery device selector
+* Volume step
+* Brightness step
+* Timer step
+* Top mode
+* Refresh rate
+* On press action
+* Custom command
 
 ## Requirements
 
-Depending on the action you use, these tools may be needed:
+Depending on the action, you may need:
 
-* `wireplumber` for audio volume control
-* `ddcutil` for monitor brightness control
-* `lm-sensors` for temperature readings
-* `zenergy` for AMD Ryzen package power readings
-* `nvidia-smi` for NVIDIA GPU metrics
-* `lspci` from `pciutils` for clearer GPU names
+* `wireplumber`
+* `ddcutil`
+* `lm-sensors`
+* `zenergy`
+* `nvidia-smi`
+* `pciutils`
 
-If CPU power reads as `0W` on Ryzen, install `zenergy`.
+If Ryzen CPU power reads as `0W`, install `zenergy`.
 
 Arch Linux:
 
@@ -87,11 +83,7 @@ Arch Linux:
 yay -S zenergy-dkms-git
 ```
 
-Intel CPU package power is supported through Intel RAPL when available.
-
-For NVIDIA GPU metrics, make sure `nvidia-smi` is available.
-
-For monitor brightness control through DDC or CI, add your user to the `i2c` group:
+For monitor brightness through DDC or CI, add your user to the `i2c` group:
 
 ```sh
 sudo usermod -aG i2c $USER
@@ -99,6 +91,6 @@ sudo usermod -aG i2c $USER
 
 ## Notes
 
-For Logitech wireless devices, battery reporting prefers sysfs when available and falls back to UPower where needed. This improves reliability for HID++ devices that expose multiple battery nodes or report unstable states while charging.
+Battery handling prefers sysfs when available and falls back to UPower when needed. This improves reliability for wireless Linux devices that expose unstable or duplicated battery nodes.
 
-Custom press commands are useful for restarting helper services, launching tools, or recovering flaky external monitoring software directly from the same key that shows the metric.
+Custom press commands are useful for launching tools, restarting services, or triggering recovery actions directly from the same key.
