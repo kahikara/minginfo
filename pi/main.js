@@ -105,14 +105,7 @@
   }
 
   function actionUsesPressAction() {
-    const actionId = getActionId();
-    return actionId.endsWith('.cpu')
-      || actionId.endsWith('.gpu')
-      || actionId.endsWith('.ping')
-      || actionId.endsWith('.audio')
-      || actionId.endsWith('.timer')
-      || actionId.endsWith('.monbright')
-      || actionId.endsWith('.battery');
+    return Boolean(getActionId());
   }
 
   function updatePressCommandVisibility() {
