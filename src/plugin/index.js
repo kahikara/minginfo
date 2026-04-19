@@ -215,6 +215,50 @@ async function sendBatteryOptionsToPropertyInspector(context) {
   });
 }
 
+function actionUsesGpuOptions(actionId) {
+  return actionId === ACTIONS.gpu || actionId === ACTIONS.vram;
+}
+
+function actionUsesBatteryOptions(actionId) {
+  return actionId === ACTIONS.battery;
+}
+
+async function sendPropertyInspectorOptions(context, actionId) {
+  if (actionUsesGpuOptions(actionId)) {
+    sendGpuOptionsToPropertyInspector(context);
+  }
+
+  if (actionUsesBatteryOptions(actionId)) {
+    await sendBatteryOptionsToPropertyInspector(context);
+  }
+}
+
+async function refreshImmediateAction(context, actionId) {
+  if (actionId === ACTIONS.audio) {
+    await updateAudioImmediately(context);
+    return;
+  }
+
+  if (actionId === ACTIONS.monbright) {
+    updateBrightnessUI(context);
+    return;
+  }
+
+  if (actionId === ACTIONS.battery) {
+    await updateBatteryImmediately(context);
+    return;
+  }
+
+  if (actionId === ACTIONS.ping) {
+    await updatePingImmediately(context);
+    return;
+  }
+
+  if (actionId === ACTIONS.timer) {
+    updateTimerUI(context);
+  }
+}
+
 async function openActionTool(action, context) {
   const launcher = ACTION_LAUNCHERS[action];
   if (!launcher) return false;
@@ -711,13 +755,7 @@ async function handleMessage(data) {
       const incomingSettings = extractIncomingSettings(message.payload);
       const refreshChanged = storeSettingsForContext(context, incomingSettings);
 
-      if (action === ACTIONS.gpu || action === ACTIONS.vram) {
-        sendGpuOptionsToPropertyInspector(context);
-      }
-
-      if (action === ACTIONS.battery) {
-        await sendBatteryOptionsToPropertyInspector(context);
-      }
+      await sendPropertyInspectorOptions(context, action);
 
       if (action === ACTIONS.timer) {
         ensureTimer(context);
@@ -760,25 +798,8 @@ async function handleMessage(data) {
       const refreshChanged = storeSettingsForContext(context, incomingSettings);
       transport.invalidateContext(context);
 
-      if (resolvedAction === ACTIONS.gpu || resolvedAction === ACTIONS.vram) {
-        sendGpuOptionsToPropertyInspector(context);
-      }
-
-      if (resolvedAction === ACTIONS.battery) {
-        await sendBatteryOptionsToPropertyInspector(context);
-      }
-
-      if (resolvedAction === ACTIONS.audio) {
-        await updateAudioImmediately(context);
-      } else if (resolvedAction === ACTIONS.monbright) {
-        updateBrightnessUI(context);
-      } else if (resolvedAction === ACTIONS.battery) {
-        await updateBatteryImmediately(context);
-      } else if (resolvedAction === ACTIONS.ping) {
-        await updatePingImmediately(context);
-      } else if (resolvedAction === ACTIONS.timer) {
-        updateTimerUI(context);
-      }
+      await sendPropertyInspectorOptions(context, resolvedAction);
+      await refreshImmediateAction(context, resolvedAction);
 
       maybeRestartPolling(refreshChanged);
       return;
@@ -792,29 +813,13 @@ async function handleMessage(data) {
         const refreshChanged = storeSettingsForContext(context, incomingSettings);
         transport.invalidateContext(context);
 
-        if (resolvedAction === ACTIONS.gpu || resolvedAction === ACTIONS.vram) {
-          sendGpuOptionsToPropertyInspector(context);
-        }
-
-        if (resolvedAction === ACTIONS.battery) {
-          await sendBatteryOptionsToPropertyInspector(context);
-        }
+        await sendPropertyInspectorOptions(context, resolvedAction);
 
         if (resolvedAction === ACTIONS.gpu) {
           await pollOnce();
         }
 
-        if (resolvedAction === ACTIONS.audio) {
-          await updateAudioImmediately(context);
-        } else if (resolvedAction === ACTIONS.monbright) {
-          updateBrightnessUI(context);
-        } else if (resolvedAction === ACTIONS.battery) {
-          await updateBatteryImmediately(context);
-        } else if (resolvedAction === ACTIONS.ping) {
-          await updatePingImmediately(context);
-        } else if (resolvedAction === ACTIONS.timer) {
-          updateTimerUI(context);
-        }
+        await refreshImmediateAction(context, resolvedAction);
 
         maybeRestartPolling(refreshChanged);
       }
