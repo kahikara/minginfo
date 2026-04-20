@@ -1,22 +1,84 @@
 const path = require('path');
 
-function getFilteredDisks(diskData = []) {
-  const uniqueDisks = new Map();
+function isRelevantDiskEntry(disk = {}) {
+  const fs = String(disk.fs || '');
+  const mount = String(disk.mount || '');
+
+  if (!fs.startsWith('/dev/')) return false;
+  if (fs.includes('loop')) return false;
+  if (mount === '/boot' || mount === '/boot/efi') return false;
+  if (mount.includes('/snap/') || mount.includes('/docker/')) return false;
+
+  return true;
+}
+
+function getBaseDiskId(fsPath = '') {
+  const fs = String(fsPath).trim();
+
+  if (/^\/dev\/nvme\d+n\d+p\d+$/.test(fs)) {
+    return fs.replace(/p\d+$/, '');
+  }
+
+  if (/^\/dev\/mmcblk\d+p\d+$/.test(fs)) {
+    return fs.replace(/p\d+$/, '');
+  }
+
+  if (/^\/dev\/sd[a-z]\d+$/.test(fs)) {
+    return fs.replace(/\d+$/, '');
+  }
+
+  if (/^\/dev\/vd[a-z]\d+$/.test(fs)) {
+    return fs.replace(/\d+$/, '');
+  }
+
+  if (/^\/dev\/xvd[a-z]\d+$/.test(fs)) {
+    return fs.replace(/\d+$/, '');
+  }
+
+  return fs;
+}
+
+function getFilteredDiskEntries(diskData = []) {
+  const uniqueByFs = new Map();
 
   for (const disk of Array.isArray(diskData) ? diskData : []) {
-    if (!disk?.fs || !String(disk.fs).startsWith('/dev/')) continue;
-    if (String(disk.fs).includes('loop')) continue;
-    if (disk.mount && (String(disk.mount).includes('/snap/') || String(disk.mount).includes('/docker/'))) continue;
+    if (!isRelevantDiskEntry(disk)) continue;
 
-    uniqueDisks.set(String(disk.fs), {
-      fs: String(disk.fs),
+    const fs = String(disk.fs);
+    if (uniqueByFs.has(fs)) continue;
+
+    uniqueByFs.set(fs, {
+      fs,
       mount: String(disk.mount || ''),
       size: Number(disk.size || 0),
       used: Number(disk.used || 0),
+      diskId: getBaseDiskId(fs),
     });
   }
 
-  return [...uniqueDisks.values()];
+  return [...uniqueByFs.values()];
+}
+
+function groupEntriesByDisk(diskData = []) {
+  const groups = new Map();
+
+  for (const entry of getFilteredDiskEntries(diskData)) {
+    if (!groups.has(entry.diskId)) {
+      groups.set(entry.diskId, {
+        id: entry.diskId,
+        size: 0,
+        used: 0,
+        partitions: [],
+      });
+    }
+
+    const group = groups.get(entry.diskId);
+    group.size += entry.size;
+    group.used += entry.used;
+    group.partitions.push(entry);
+  }
+
+  return [...groups.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function formatDiskSize(bytes) {
@@ -30,19 +92,15 @@ function formatDiskSize(bytes) {
 }
 
 function listAvailableDisks(diskData = []) {
-  return getFilteredDisks(diskData)
-    .sort((a, b) => a.fs.localeCompare(b.fs))
-    .map((disk) => {
-      const base = path.basename(disk.fs);
-      return {
-        id: disk.fs,
-        label: `${base} · ${formatDiskSize(disk.size)}`,
-      };
-    });
+  return groupEntriesByDisk(diskData).map((disk) => ({
+    id: disk.id,
+    label: `${path.basename(disk.id)} · ${formatDiskSize(disk.size)}`,
+  }));
 }
 
 function summarizeDisks(diskData = [], selectedDisks = []) {
-  const allDisks = getFilteredDisks(diskData);
+  const grouped = groupEntriesByDisk(diskData);
+
   const selectedSet = new Set(
     (Array.isArray(selectedDisks) ? selectedDisks : [])
       .map((entry) => String(entry || '').trim())
@@ -50,8 +108,8 @@ function summarizeDisks(diskData = [], selectedDisks = []) {
   );
 
   const disks = selectedSet.size > 0
-    ? allDisks.filter((disk) => selectedSet.has(disk.fs))
-    : allDisks;
+    ? grouped.filter((disk) => selectedSet.has(disk.id))
+    : grouped;
 
   let totalSize = 0;
   let totalUsed = 0;
