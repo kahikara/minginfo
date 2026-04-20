@@ -135,16 +135,18 @@ function isBatteryChargingState(state) {
   return value === 'CHARGING' || value === 'PENDING' || value === 'FULL';
 }
 
-function renderBatteryImage(batteryData) {
+function renderBatteryImage(batteryData, settings = {}) {
   if (!batteryData?.available) {
     return generateButtonImage('🔋', 'BATTERY', 'N/A', 'NO DATA', -1);
   }
+
+  const displayLabel = String(settings.batteryLabel || '').trim() || batteryData.label;
 
   return generateBatteryButtonImage(
     '🔋',
     'BATTERY',
     `${batteryData.percentage}%`,
-    trimBatteryLabel(batteryData.label),
+    trimBatteryLabel(displayLabel),
     batteryData.percentage,
     isBatteryChargingState(batteryData.state)
   );
@@ -216,7 +218,7 @@ function renderTimeImage(context) {
 async function updateBatteryImmediately(context) {
   const settings = getSettingsForContext(context);
   const batteryData = await getMouseBattery(settings.batteryDevice);
-  transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData));
+  transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData, settings));
 }
 
 async function updateFanImmediately(context) {
@@ -459,7 +461,7 @@ async function runCustomPressCommand(context, settings, resolvedAction) {
 }
 
 function extractIncomingSettings(payload = {}) {
-  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'fanSelector', 'fanLabel', 'selectedDisks', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
+  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'batteryLabel', 'fanSelector', 'fanLabel', 'selectedDisks', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
 
   function visit(value, depth = 0) {
     if (!value || typeof value !== 'object' || depth > 6) {
@@ -721,7 +723,7 @@ async function pollOnce() {
 
       if (action === ACTIONS.battery) {
         const batteryData = await getCachedBatteryData(batteryDataCache, settings.batteryDevice);
-        transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData));
+        transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData, settings));
         continue;
       }
 

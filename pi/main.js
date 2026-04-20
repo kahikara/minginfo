@@ -23,6 +23,7 @@
   const networkInterfaceWrap = $('networkInterfaceWrap');
   const gpuSelectorWrap = $('gpuSelectorWrap');
   const batterySelectorWrap = $('batterySelectorWrap');
+  const batteryLabelWrap = $('batteryLabelWrap');
   const diskSelectorWrap = $('diskSelectorWrap');
   const fanSelectorWrap = $('fanSelectorWrap');
   const fanLabelWrap = $('fanLabelWrap');
@@ -48,6 +49,7 @@
     networkInterface: '',
     gpuSelector: 'auto',
     batteryDevice: 'auto',
+    batteryLabel: '',
     fanSelector: 'auto',
     fanLabel: '',
     selectedDisks: [],
@@ -82,6 +84,10 @@
   }
 
   function actionUsesBatterySelector() {
+    return getActionId().endsWith('.battery');
+  }
+
+  function actionUsesBatteryLabel() {
     return getActionId().endsWith('.battery');
   }
 
@@ -127,6 +133,7 @@
     networkInterfaceWrap.classList.toggle('hidden', !actionUsesNetworkInterface());
     gpuSelectorWrap.classList.toggle('hidden', !actionUsesGpuSelector());
     batterySelectorWrap.classList.toggle('hidden', !actionUsesBatterySelector());
+    batteryLabelWrap.classList.toggle('hidden', !actionUsesBatteryLabel());
     diskSelectorWrap.classList.toggle('hidden', !actionUsesDiskSelector());
     fanSelectorWrap.classList.toggle('hidden', !actionUsesFanSelector());
     fanLabelWrap.classList.toggle('hidden', !actionUsesFanLabel());
@@ -241,6 +248,10 @@
       normalized.batteryDevice = batteryDevice || DEFAULT_SETTINGS.batteryDevice;
     }
 
+    if (typeof settings.batteryLabel === 'string') {
+      normalized.batteryLabel = settings.batteryLabel.trim();
+    }
+
     if (typeof settings.fanSelector === 'string') {
       const fanSelector = settings.fanSelector.trim();
       normalized.fanSelector = fanSelector || DEFAULT_SETTINGS.fanSelector;
@@ -293,6 +304,7 @@
     fields.networkInterface.value = normalized.networkInterface;
     renderGpuOptions(currentGpuOptions, normalized.gpuSelector);
     renderBatteryOptions(currentBatteryOptions, normalized.batteryDevice);
+    fields.batteryLabel.value = normalized.batteryLabel;
     renderDiskOptions(currentDiskOptions, normalized.selectedDisks);
     renderFanOptions(currentFanOptions, normalized.fanSelector);
     fields.fanLabel.value = normalized.fanLabel;
@@ -313,6 +325,7 @@
       networkInterface: fields.networkInterface.value,
       gpuSelector: fields.gpuSelector.value,
       batteryDevice: fields.batteryDevice.value,
+      batteryLabel: fields.batteryLabel.value,
       selectedDisks: getSelectedDisksFromUi(),
       fanSelector: fields.fanSelector.value,
       fanLabel: fields.fanLabel.value,
@@ -335,7 +348,7 @@
   }
 
   function extractIncomingSettings(payload = {}) {
-    const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'selectedDisks', 'fanSelector', 'fanLabel', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
+    const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'batteryLabel', 'selectedDisks', 'fanSelector', 'fanLabel', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
 
     function visit(value, depth = 0) {
       if (!value || typeof value !== 'object' || depth > 6) {
