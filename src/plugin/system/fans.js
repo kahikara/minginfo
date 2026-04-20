@@ -3,6 +3,10 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { fileExists, readText, warnOnce } = require('../utils');
 
+let cachedFans = [];
+let lastFanScan = 0;
+const FAN_CACHE_MS = 4000;
+
 function unavailableFanStats() {
   return {
     available: false,
@@ -240,11 +244,18 @@ function scanNvidiaFans() {
   }
 }
 
-function listAvailableFans() {
-  return sortFans([
+function listAvailableFans(force = false) {
+  if (!force && cachedFans.length > 0 && (Date.now() - lastFanScan) < FAN_CACHE_MS) {
+    return cachedFans;
+  }
+
+  lastFanScan = Date.now();
+  cachedFans = sortFans([
     ...scanHwmonFans(),
     ...scanNvidiaFans(),
   ]);
+
+  return cachedFans;
 }
 
 function getFanStats(selector = 'auto') {

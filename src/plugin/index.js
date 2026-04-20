@@ -723,6 +723,27 @@ async function pollOnce() {
 
     await Promise.allSettled(promises);
 
+    const preloadPromises = [];
+
+    for (const context of Object.keys(state.activeContexts)) {
+      if (state.transientImageTimers[context]) {
+        continue;
+      }
+
+      const { action } = state.activeContexts[context];
+      const settings = getSettingsForContext(context);
+
+      if (action === ACTIONS.net) {
+        preloadPromises.push(getCachedNetworkStats(networkStatsCache, settings.networkInterface));
+      }
+
+      if (action === ACTIONS.battery) {
+        preloadPromises.push(getCachedBatteryData(batteryDataCache, settings.batteryDevice));
+      }
+    }
+
+    await Promise.allSettled(preloadPromises);
+
     const cpuPower = needsCpu ? getCpuPower() : { available: false, watts: 0 };
 
     for (const context of Object.keys(state.activeContexts)) {
