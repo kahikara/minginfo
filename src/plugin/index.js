@@ -793,10 +793,11 @@ async function pollOnce() {
           image = generateFooterButtonImage('🌐', 'NET', `↓${download}`, `↑${upload}`, ifaceLabel);
         }
       } else if (action === ACTIONS.disk) {
+        const diskSummary = summarizeDisks(diskData, settings.selectedDisks);
+
         if (!diskSummary.available) {
           image = generateButtonImage('🖴', 'DISKS', '...', 'Loading...', -1);
         } else {
-          const diskSummary = summarizeDisks(diskData, settings.selectedDisks);
           image = generateButtonImage('🖴', 'DISKS', `${Math.round(diskSummary.percent)}%`, `${Math.round(diskSummary.freeGB)} GB free`, diskSummary.percent);
         }
       } else if (action === ACTIONS.ping) {

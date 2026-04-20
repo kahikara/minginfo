@@ -513,7 +513,11 @@
 
         if (Array.isArray(message.payload?.diskOptions)) {
           currentDiskOptions = extractDiskOptions(message.payload);
-          renderDiskOptions(currentDiskOptions, getSelectedDisksFromUi());
+          const currentSettings = extractIncomingSettings(message.payload);
+          const selectedDisks = Array.isArray(currentSettings.selectedDisks)
+            ? currentSettings.selectedDisks
+            : getSelectedDisksFromUi();
+          renderDiskOptions(currentDiskOptions, selectedDisks);
         }
 
         if (Array.isArray(message.payload?.fanOptions)) {
