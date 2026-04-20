@@ -216,9 +216,14 @@ function renderTimeImage(context) {
 }
 
 async function updateBatteryImmediately(context) {
-  const settings = getSettingsForContext(context);
-  const batteryData = await getMouseBattery(settings.batteryDevice);
-  transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData, settings));
+  try {
+    const settings = getSettingsForContext(context);
+    const batteryData = await getMouseBattery(settings.batteryDevice);
+    transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData, settings));
+  } catch (error) {
+    warn(`battery update failed for ${context}:`, error?.message || error);
+    transport.sendUpdateIfChanged(context, generateButtonImage('🔋', 'BATTERY', 'N/A', 'NO DATA', -1));
+  }
 }
 
 async function updateFanImmediately(context) {
@@ -722,8 +727,13 @@ async function pollOnce() {
       }
 
       if (action === ACTIONS.battery) {
-        const batteryData = await getCachedBatteryData(batteryDataCache, settings.batteryDevice);
-        transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData, settings));
+        try {
+          const batteryData = await getCachedBatteryData(batteryDataCache, settings.batteryDevice);
+          transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData, settings));
+        } catch (error) {
+          warn(`battery poll failed for ${context}:`, error?.message || error);
+          transport.sendUpdateIfChanged(context, generateButtonImage('🔋', 'BATTERY', 'N/A', 'NO DATA', -1));
+        }
         continue;
       }
 
