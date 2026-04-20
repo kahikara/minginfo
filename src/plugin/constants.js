@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   networkInterface: '',
   gpuSelector: 'auto',
   batteryDevice: 'auto',
+  batteryLabel: '',
   fanSelector: 'auto',
   fanLabel: '',
   selectedDisks: [],

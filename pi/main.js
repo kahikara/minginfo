@@ -6,6 +6,7 @@
     networkInterface: $('networkInterface'),
     gpuSelector: $('gpuSelector'),
     batteryDevice: $('batteryDevice'),
+    batteryLabel: $('batteryLabel'),
     fanSelector: $('fanSelector'),
     diskSelectorBox: $('diskSelectorBox'),
     fanLabel: $('fanLabel'),

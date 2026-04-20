@@ -29,6 +29,10 @@ function normalizeSettings(settings = {}) {
     normalized.batteryDevice = batteryDevice || DEFAULT_SETTINGS.batteryDevice;
   }
 
+  if (typeof settings.batteryLabel === 'string') {
+    normalized.batteryLabel = settings.batteryLabel.trim();
+  }
+
   if (typeof settings.fanSelector === 'string') {
     const fanSelector = settings.fanSelector.trim();
     normalized.fanSelector = fanSelector || DEFAULT_SETTINGS.fanSelector;
