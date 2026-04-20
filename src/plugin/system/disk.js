@@ -19,15 +19,26 @@ function getFilteredDisks(diskData = []) {
   return [...uniqueDisks.values()];
 }
 
+function formatDiskSize(bytes) {
+  const gb = bytes / (1024 ** 3);
+
+  if (gb >= 1024) {
+    return `${(gb / 1024).toFixed(1)} TB`;
+  }
+
+  return `${Math.round(gb)} GB`;
+}
+
 function listAvailableDisks(diskData = []) {
-  return getFilteredDisks(diskData).map((disk) => {
-    const base = path.basename(disk.fs);
-    const mountLabel = disk.mount || 'unmounted';
-    return {
-      id: disk.fs,
-      label: `${base} · ${mountLabel}`,
-    };
-  });
+  return getFilteredDisks(diskData)
+    .sort((a, b) => a.fs.localeCompare(b.fs))
+    .map((disk) => {
+      const base = path.basename(disk.fs);
+      return {
+        id: disk.fs,
+        label: `${base} · ${formatDiskSize(disk.size)}`,
+      };
+    });
 }
 
 function summarizeDisks(diskData = [], selectedDisks = []) {
