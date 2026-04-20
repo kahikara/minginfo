@@ -130,6 +130,16 @@ function trimBatteryLabel(label) {
   return value.length > 12 ? `${value.slice(0, 11)}…` : value;
 }
 
+function getBatteryDisplayLabel(batteryData, settings = {}) {
+  const value = String(settings.batteryLabel || '').trim() || batteryData?.label || 'UNKNOWN';
+  return trimBatteryLabel(value);
+}
+
+function getBatteryPercent(value) {
+  const percent = Number.parseInt(String(value ?? '').trim(), 10);
+  return Number.isFinite(percent) ? clamp(percent, 0, 100) : null;
+}
+
 function isBatteryChargingState(state) {
   const value = String(state || '').trim().toUpperCase();
   return value === 'CHARGING' || value === 'PENDING' || value === 'FULL';
@@ -140,14 +150,19 @@ function renderBatteryImage(batteryData, settings = {}) {
     return generateButtonImage('🔋', 'BATTERY', 'N/A', 'NO DATA', -1);
   }
 
-  const displayLabel = String(settings.batteryLabel || '').trim() || batteryData.label;
+  const percent = getBatteryPercent(batteryData.percentage);
+  const label = getBatteryDisplayLabel(batteryData, settings);
+
+  if (percent === null) {
+    return generateButtonImage('🔋', 'BATTERY', 'N/A', label, -1);
+  }
 
   return generateBatteryButtonImage(
     '🔋',
     'BATTERY',
-    `${batteryData.percentage}%`,
-    trimBatteryLabel(displayLabel),
-    batteryData.percentage,
+    `${percent}%`,
+    label,
+    percent,
     isBatteryChargingState(batteryData.state)
   );
 }
@@ -216,13 +231,14 @@ function renderTimeImage(context) {
 }
 
 async function updateBatteryImmediately(context) {
+  const settings = getSettingsForContext(context);
+
   try {
-    const settings = getSettingsForContext(context);
     const batteryData = await getMouseBattery(settings.batteryDevice);
     transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData, settings));
   } catch (error) {
-    warn(`battery update failed for ${context}:`, error?.message || error);
-    transport.sendUpdateIfChanged(context, generateButtonImage('🔋', 'BATTERY', 'N/A', 'NO DATA', -1));
+    warn('Battery update failed:', error?.message || error);
+    transport.sendUpdateIfChanged(context, renderBatteryImage({ available: false }, settings));
   }
 }
 
@@ -598,7 +614,15 @@ async function getCachedBatteryData(cache, batteryDevice = 'auto') {
   const key = String(batteryDevice || '').trim() || 'auto';
 
   if (!cache.has(key)) {
-    cache.set(key, getMouseBattery(key));
+    cache.set(
+      key,
+      Promise.resolve()
+        .then(() => getMouseBattery(key))
+        .catch((error) => {
+          warn(`Battery read failed (${key}):`, error?.message || error);
+          return { available: false };
+        })
+    );
   }
 
   return cache.get(key);
