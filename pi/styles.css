@@ -170,3 +170,41 @@ button:active {
     width: 100%;
   }
 }
+
+
+.checkListBox {
+  display: grid;
+  gap: 6px;
+  max-height: 140px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  background: var(--input);
+}
+
+.checkListItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 12px;
+  min-width: 0;
+}
+
+.checkListItem input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  min-height: 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  accent-color: #4ade80;
+}
+
+.checkListItem span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

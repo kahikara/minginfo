@@ -7,6 +7,7 @@
     gpuSelector: $('gpuSelector'),
     batteryDevice: $('batteryDevice'),
     fanSelector: $('fanSelector'),
+    diskSelectorBox: $('diskSelectorBox'),
     fanLabel: $('fanLabel'),
     volumeStep: $('volumeStep'),
     brightnessStep: $('brightnessStep'),
@@ -21,6 +22,7 @@
   const networkInterfaceWrap = $('networkInterfaceWrap');
   const gpuSelectorWrap = $('gpuSelectorWrap');
   const batterySelectorWrap = $('batterySelectorWrap');
+  const diskSelectorWrap = $('diskSelectorWrap');
   const fanSelectorWrap = $('fanSelectorWrap');
   const fanLabelWrap = $('fanLabelWrap');
   const volumeStepWrap = $('volumeStepWrap');
@@ -37,6 +39,7 @@
   let actionContext = null;
   let currentGpuOptions = [];
   let currentBatteryOptions = [];
+  let currentDiskOptions = [];
   let currentFanOptions = [];
 
   const DEFAULT_SETTINGS = Object.freeze({
@@ -46,6 +49,7 @@
     batteryDevice: 'auto',
     fanSelector: 'auto',
     fanLabel: '',
+    selectedDisks: [],
     volumeStep: 2,
     brightnessStep: 5,
     timerStep: 1,
@@ -78,6 +82,10 @@
 
   function actionUsesBatterySelector() {
     return getActionId().endsWith('.battery');
+  }
+
+  function actionUsesDiskSelector() {
+    return getActionId().endsWith('.disk');
   }
 
   function actionUsesFanSelector() {
@@ -118,6 +126,7 @@
     networkInterfaceWrap.classList.toggle('hidden', !actionUsesNetworkInterface());
     gpuSelectorWrap.classList.toggle('hidden', !actionUsesGpuSelector());
     batterySelectorWrap.classList.toggle('hidden', !actionUsesBatterySelector());
+    diskSelectorWrap.classList.toggle('hidden', !actionUsesDiskSelector());
     fanSelectorWrap.classList.toggle('hidden', !actionUsesFanSelector());
     fanLabelWrap.classList.toggle('hidden', !actionUsesFanLabel());
     volumeStepWrap.classList.toggle('hidden', !actionUsesVolumeStep());
@@ -165,6 +174,45 @@
     renderSelectOptions(fields.batteryDevice, options, selectedValue);
   }
 
+  function renderDiskOptions(options = [], selectedValues = DEFAULT_SETTINGS.selectedDisks) {
+    const selectedSet = new Set(
+      (Array.isArray(selectedValues) ? selectedValues : [])
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean)
+    );
+
+    fields.diskSelectorBox.innerHTML = '';
+
+    for (const option of Array.isArray(options) ? options : []) {
+      const id = typeof option?.id === 'string' ? option.id.trim() : '';
+      if (!id) {
+        continue;
+      }
+
+      const label = typeof option?.label === 'string' && option.label.trim() ? option.label.trim() : id;
+      const row = document.createElement('label');
+      row.className = 'checkListItem';
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = id;
+      checkbox.checked = selectedSet.has(id);
+
+      const textNode = document.createElement('span');
+      textNode.textContent = label;
+
+      row.appendChild(checkbox);
+      row.appendChild(textNode);
+      fields.diskSelectorBox.appendChild(row);
+    }
+  }
+
+  function getSelectedDisksFromUi() {
+    return [...fields.diskSelectorBox.querySelectorAll('input[type="checkbox"]:checked')]
+      .map((node) => String(node.value || '').trim())
+      .filter(Boolean);
+  }
+
   function renderFanOptions(options = [], selectedValue = DEFAULT_SETTINGS.fanSelector) {
     renderSelectOptions(fields.fanSelector, options, selectedValue);
   }
@@ -199,6 +247,12 @@
 
     if (typeof settings.fanLabel === 'string') {
       normalized.fanLabel = settings.fanLabel.trim();
+    }
+
+    if (Array.isArray(settings.selectedDisks)) {
+      normalized.selectedDisks = settings.selectedDisks
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean);
     }
 
     if (settings.volumeStep !== undefined) {
@@ -238,6 +292,7 @@
     fields.networkInterface.value = normalized.networkInterface;
     renderGpuOptions(currentGpuOptions, normalized.gpuSelector);
     renderBatteryOptions(currentBatteryOptions, normalized.batteryDevice);
+    renderDiskOptions(currentDiskOptions, normalized.selectedDisks);
     renderFanOptions(currentFanOptions, normalized.fanSelector);
     fields.fanLabel.value = normalized.fanLabel;
     fields.volumeStep.value = String(normalized.volumeStep);
@@ -257,6 +312,7 @@
       networkInterface: fields.networkInterface.value,
       gpuSelector: fields.gpuSelector.value,
       batteryDevice: fields.batteryDevice.value,
+      selectedDisks: getSelectedDisksFromUi(),
       fanSelector: fields.fanSelector.value,
       fanLabel: fields.fanLabel.value,
       volumeStep: fields.volumeStep.value,
@@ -278,7 +334,7 @@
   }
 
   function extractIncomingSettings(payload = {}) {
-    const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'fanSelector', 'fanLabel', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
+    const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'selectedDisks', 'fanSelector', 'fanLabel', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
 
     function visit(value, depth = 0) {
       if (!value || typeof value !== 'object' || depth > 6) {
@@ -335,6 +391,18 @@
 
     if (payload.settings && Array.isArray(payload.settings.batteryOptions)) {
       return payload.settings.batteryOptions;
+    }
+
+    return [];
+  }
+
+  function extractDiskOptions(payload = {}) {
+    if (Array.isArray(payload.diskOptions)) {
+      return payload.diskOptions;
+    }
+
+    if (payload.settings && Array.isArray(payload.settings.diskOptions)) {
+      return payload.settings.diskOptions;
     }
 
     return [];
@@ -443,6 +511,11 @@
           renderBatteryOptions(currentBatteryOptions, fields.batteryDevice.value);
         }
 
+        if (Array.isArray(message.payload?.diskOptions)) {
+          currentDiskOptions = extractDiskOptions(message.payload);
+          renderDiskOptions(currentDiskOptions, getSelectedDisksFromUi());
+        }
+
         if (Array.isArray(message.payload?.fanOptions)) {
           currentFanOptions = extractFanOptions(message.payload);
           renderFanOptions(currentFanOptions, fields.fanSelector.value);
@@ -454,6 +527,7 @@
         } else if (
           Array.isArray(message.payload?.gpuOptions)
           || Array.isArray(message.payload?.batteryOptions)
+          || Array.isArray(message.payload?.diskOptions)
           || Array.isArray(message.payload?.fanOptions)
         ) {
           setStatus('Options updated');

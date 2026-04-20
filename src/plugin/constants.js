@@ -24,6 +24,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   batteryDevice: 'auto',
   fanSelector: 'auto',
   fanLabel: '',
+  selectedDisks: [],
   volumeStep: 2,
   brightnessStep: 5,
   timerStep: 1,

@@ -17,7 +17,7 @@ const { listBatteryDevices, getMouseBattery } = require('./system/battery');
 const { listAvailableFans, getFanStats } = require('./system/fans');
 const { getPingState, getPing } = require('./system/ping');
 const { getTopProcessSummary } = require('./system/top');
-const { summarizeDisks } = require('./system/disk');
+const { listAvailableDisks, summarizeDisks } = require('./system/disk');
 
 const ACTION_LAUNCHERS = Object.freeze({
   [ACTIONS.cpu]: {
@@ -264,6 +264,18 @@ async function sendBatteryOptionsToPropertyInspector(context) {
   });
 }
 
+async function sendDiskOptionsToPropertyInspector(context) {
+  const diskData = await si.fsSize();
+  transport.safeSend({
+    event: 'sendToPropertyInspector',
+    context,
+    payload: {
+      settings: getSettingsForContext(context),
+      diskOptions: listAvailableDisks(diskData),
+    },
+  });
+}
+
 function sendFanOptionsToPropertyInspector(context) {
   transport.safeSend({
     event: 'sendToPropertyInspector',
@@ -283,6 +295,10 @@ function actionUsesBatteryOptions(actionId) {
   return actionId === ACTIONS.battery;
 }
 
+function actionUsesDiskOptions(actionId) {
+  return actionId === ACTIONS.disk;
+}
+
 function actionUsesFanOptions(actionId) {
   return actionId === ACTIONS.fan;
 }
@@ -294,6 +310,10 @@ async function sendPropertyInspectorOptions(context, actionId) {
 
   if (actionUsesBatteryOptions(actionId)) {
     await sendBatteryOptionsToPropertyInspector(context);
+  }
+
+  if (actionUsesDiskOptions(actionId)) {
+    await sendDiskOptionsToPropertyInspector(context);
   }
 
   if (actionUsesFanOptions(actionId)) {
@@ -439,7 +459,7 @@ async function runCustomPressCommand(context, settings, resolvedAction) {
 }
 
 function extractIncomingSettings(payload = {}) {
-  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'fanSelector', 'fanLabel', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
+  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'fanSelector', 'fanLabel', 'selectedDisks', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
 
   function visit(value, depth = 0) {
     if (!value || typeof value !== 'object' || depth > 6) {
@@ -673,7 +693,6 @@ async function pollOnce() {
     await Promise.allSettled(promises);
 
     const cpuPower = needsCpu ? getCpuPower() : { available: false, watts: 0 };
-    const diskSummary = summarizeDisks(diskData);
 
     for (const context of Object.keys(state.activeContexts)) {
       const { action } = state.activeContexts[context];
@@ -777,7 +796,8 @@ async function pollOnce() {
         if (!diskSummary.available) {
           image = generateButtonImage('🖴', 'DISKS', '...', 'Loading...', -1);
         } else {
-          image = generateCenteredHeaderButtonImage('🖴', 'DISKS', `${Math.round(diskSummary.percent)}%`, `${Math.round(diskSummary.freeGB)} GB free`, diskSummary.percent);
+          const diskSummary = summarizeDisks(diskData, settings.selectedDisks);
+          image = generateButtonImage('🖴', 'DISKS', `${Math.round(diskSummary.percent)}%`, `${Math.round(diskSummary.freeGB)} GB free`, diskSummary.percent);
         }
       } else if (action === ACTIONS.ping) {
         const pingState = getPingState(context);

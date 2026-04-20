@@ -38,6 +38,12 @@ function normalizeSettings(settings = {}) {
     normalized.fanLabel = settings.fanLabel.trim();
   }
 
+  if (Array.isArray(settings.selectedDisks)) {
+    normalized.selectedDisks = settings.selectedDisks
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean);
+  }
+
   if (settings.volumeStep !== undefined) {
     normalized.volumeStep = clamp(Number.parseInt(settings.volumeStep, 10) || DEFAULT_SETTINGS.volumeStep, 1, 20);
   }
