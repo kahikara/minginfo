@@ -8,7 +8,8 @@
     batteryDevice: $('batteryDevice'),
     batteryLabel: $('batteryLabel'),
     fanSelector: $('fanSelector'),
-    diskSelectorBox: $('diskSelectorBox'),
+    diskSelectorButton: $('diskSelectorButton'),
+    diskSelectorMenu: $('diskSelectorMenu'),
     fanLabel: $('fanLabel'),
     volumeStep: $('volumeStep'),
     brightnessStep: $('brightnessStep'),
@@ -182,16 +183,74 @@
     renderSelectOptions(fields.batteryDevice, options, selectedValue);
   }
 
-  function renderDiskOptions(options = [], selectedValues = DEFAULT_SETTINGS.selectedDisks) {
-    const selectedSet = new Set(
+  function getSelectedDiskSet(selectedValues = DEFAULT_SETTINGS.selectedDisks) {
+    return new Set(
       (Array.isArray(selectedValues) ? selectedValues : [])
         .map((entry) => String(entry || '').trim())
         .filter(Boolean)
     );
+  }
 
-    fields.diskSelectorBox.innerHTML = '';
+  function getDiskOptionLabel(id = '') {
+    const match = currentDiskOptions.find((option) => String(option?.id || '').trim() === String(id || '').trim());
+    if (!match) {
+      return String(id || '').trim();
+    }
 
-    for (const option of Array.isArray(options) ? options : []) {
+    return typeof match.label === 'string' && match.label.trim() ? match.label.trim() : String(id || '').trim();
+  }
+
+  function closeDiskSelectorMenu() {
+    fields.diskSelectorMenu.classList.add('hidden');
+  }
+
+  function toggleDiskSelectorMenu() {
+    fields.diskSelectorMenu.classList.toggle('hidden');
+  }
+
+  function updateDiskSelectorButtonLabel() {
+    const selected = getSelectedDisksFromUi();
+
+    if (selected.length === 0) {
+      fields.diskSelectorButton.textContent = 'Auto';
+      return;
+    }
+
+    if (selected.length === 1) {
+      fields.diskSelectorButton.textContent = getDiskOptionLabel(selected[0]);
+      return;
+    }
+
+    fields.diskSelectorButton.textContent = `${selected.length} disks selected`;
+  }
+
+  function renderDiskOptions(options = [], selectedValues = DEFAULT_SETTINGS.selectedDisks) {
+    currentDiskOptions = Array.isArray(options) ? options : [];
+    const selectedSet = getSelectedDiskSet(selectedValues);
+
+    fields.diskSelectorMenu.innerHTML = '';
+
+    const autoRow = document.createElement('label');
+    autoRow.className = 'checkListItem';
+
+    const autoCheckbox = document.createElement('input');
+    autoCheckbox.type = 'checkbox';
+    autoCheckbox.checked = selectedSet.size === 0;
+    autoCheckbox.dataset.role = 'auto';
+
+    const autoText = document.createElement('span');
+    autoText.textContent = 'Auto';
+
+    autoRow.appendChild(autoCheckbox);
+    autoRow.appendChild(autoText);
+    fields.diskSelectorMenu.appendChild(autoRow);
+
+    autoCheckbox.addEventListener('change', () => {
+      renderDiskOptions(currentDiskOptions, []);
+      updateDiskSelectorButtonLabel();
+    });
+
+    for (const option of currentDiskOptions) {
       const id = typeof option?.id === 'string' ? option.id.trim() : '';
       if (!id) {
         continue;
@@ -205,18 +264,31 @@
       checkbox.type = 'checkbox';
       checkbox.value = id;
       checkbox.checked = selectedSet.has(id);
+      checkbox.dataset.role = 'disk';
+      checkbox.dataset.diskId = id;
 
       const textNode = document.createElement('span');
       textNode.textContent = label;
 
       row.appendChild(checkbox);
       row.appendChild(textNode);
-      fields.diskSelectorBox.appendChild(row);
+      fields.diskSelectorMenu.appendChild(row);
+
+      checkbox.addEventListener('change', () => {
+        const selected = [...fields.diskSelectorMenu.querySelectorAll('input[data-role="disk"]:checked')]
+          .map((node) => String(node.value || '').trim())
+          .filter(Boolean);
+
+        renderDiskOptions(currentDiskOptions, selected);
+        updateDiskSelectorButtonLabel();
+      });
     }
+
+    updateDiskSelectorButtonLabel();
   }
 
   function getSelectedDisksFromUi() {
-    return [...fields.diskSelectorBox.querySelectorAll('input[type="checkbox"]:checked')]
+    return [...fields.diskSelectorMenu.querySelectorAll('input[data-role="disk"]:checked')]
       .map((node) => String(node.value || '').trim())
       .filter(Boolean);
   }
@@ -564,6 +636,23 @@
 
   saveButton.addEventListener('click', saveSettings);
   fields.pressAction.addEventListener('change', updatePressCommandVisibility);
+  fields.diskSelectorButton.addEventListener('click', (event) => {
+    event.preventDefault();
+    toggleDiskSelectorMenu();
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!diskSelectorWrap.contains(event.target)) {
+      closeDiskSelectorMenu();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeDiskSelectorMenu();
+    }
+  });
+
   applySettings({});
   setStatus('Waiting for OpenDeck');
 })();

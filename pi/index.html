@@ -24,9 +24,10 @@
           </section>
 
           <section id="diskSelectorWrap" class="card hidden">
-            <label>Disk filter</label>
-            <div id="diskSelectorBox" class="checkListBox"></div>
-            <p class="hint">Raw disk based filter. Leave all unchecked to show all detected disks. /boot and /boot/efi are excluded by default.</p>
+            <label for="diskSelectorButton">Disks to include</label>
+            <button id="diskSelectorButton" type="button">Auto</button>
+            <div id="diskSelectorMenu" class="checkListBox hidden"></div>
+            <p class="hint">Choose which raw disks should be included. Auto uses all detected disks. /boot and /boot/efi stay excluded.</p>
           </section>
 
           <section id="gpuSelectorWrap" class="card hidden">
