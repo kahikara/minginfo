@@ -288,13 +288,21 @@ async function sendBatteryOptionsToPropertyInspector(context) {
 }
 
 async function sendDiskOptionsToPropertyInspector(context) {
-  const diskData = await si.fsSize();
+  let diskOptions = [];
+
+  try {
+    const diskData = await si.fsSize();
+    diskOptions = listAvailableDisks(diskData);
+  } catch (error) {
+    warn('disk option scan failed:', error?.message || error);
+  }
+
   transport.safeSend({
     event: 'sendToPropertyInspector',
     context,
     payload: {
       settings: getSettingsForContext(context),
-      diskOptions: listAvailableDisks(diskData),
+      diskOptions,
     },
   });
 }

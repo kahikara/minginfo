@@ -24,7 +24,7 @@ function shouldIncludeDisk(disk = {}) {
   return true;
 }
 
-function summarizeDisks(diskData) {
+function collectRawDisks(diskData) {
   const bestByRawDisk = new Map();
 
   for (const disk of Array.isArray(diskData) ? diskData : []) {
@@ -38,14 +38,43 @@ function summarizeDisks(diskData) {
     const nextSize = Number(disk.size || 0);
 
     if (!current || nextSize > currentSize) {
-      bestByRawDisk.set(rawDiskKey, disk);
+      bestByRawDisk.set(rawDiskKey, {
+        ...disk,
+        rawDiskKey,
+      });
     }
   }
+
+  return bestByRawDisk;
+}
+
+function listAvailableDisks(diskData) {
+  return Array.from(collectRawDisks(diskData).values())
+    .sort((a, b) => a.rawDiskKey.localeCompare(b.rawDiskKey))
+    .map((disk) => {
+      const sizeGb = Number(disk.size || 0) / (1024 ** 3);
+      const sizeText = sizeGb > 0 ? ` • ${Math.round(sizeGb)} GB` : '';
+      return {
+        id: disk.rawDiskKey,
+        label: `${disk.rawDiskKey}${sizeText}`,
+      };
+    });
+}
+
+function summarizeDisks(diskData, selectedDisks = []) {
+  const selectedSet = new Set(
+    (Array.isArray(selectedDisks) ? selectedDisks : [])
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean)
+  );
+
+  const disks = Array.from(collectRawDisks(diskData).values())
+    .filter((disk) => selectedSet.size === 0 || selectedSet.has(disk.rawDiskKey));
 
   let totalSize = 0;
   let totalUsed = 0;
 
-  for (const disk of bestByRawDisk.values()) {
+  for (const disk of disks) {
     totalSize += Number(disk.size || 0);
     totalUsed += Number(disk.used || 0);
   }
@@ -62,5 +91,6 @@ function summarizeDisks(diskData) {
 }
 
 module.exports = {
+  listAvailableDisks,
   summarizeDisks,
 };
