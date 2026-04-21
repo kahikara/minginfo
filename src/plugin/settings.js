@@ -91,6 +91,7 @@ function normalizePluginWideSettings(settings = {}) {
 }
 
 function storeSettingsForContext(context, settings = {}) {
+  const before = getPluginWideSettings().refreshRate;
   const currentSettings = context ? (state.contextSettings[context] || {}) : {};
   const normalized = normalizeSettings({
     ...currentSettings,
@@ -101,7 +102,14 @@ function storeSettingsForContext(context, settings = {}) {
     state.contextSettings[context] = normalized;
   }
 
-  return false;
+  if (hasOwn(settings, 'refreshRate')) {
+    state.globalPluginSettings = normalizePluginWideSettings({
+      ...state.globalPluginSettings,
+      refreshRate: settings.refreshRate,
+    });
+  }
+
+  return before !== getPluginWideSettings().refreshRate;
 }
 
 function getSettingsForContext(context) {
