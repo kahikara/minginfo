@@ -1084,7 +1084,6 @@ async function handleMessage(data) {
         transport.sendUpdateIfChanged(context, getActionLoadingImage(context, action));
       }
 
-      transport.invalidateAllVisible();
       void pollOnce();
 
       if (!state.pollingInterval) startPolling();
