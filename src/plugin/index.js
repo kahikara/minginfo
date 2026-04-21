@@ -719,7 +719,15 @@ async function getCachedNetworkStats(cache, networkInterface = '') {
   const key = String(networkInterface || '').trim() || '__auto__';
 
   if (!cache.has(key)) {
-    cache.set(key, getNetworkStats(networkInterface));
+    cache.set(
+      key,
+      Promise.resolve()
+        .then(() => getNetworkStats(networkInterface))
+        .catch((error) => {
+          warn(`Network read failed (${key}):`, error?.message || error);
+          return { available: false, iface: null, data: [] };
+        })
+    );
   }
 
   return cache.get(key);
@@ -1056,40 +1064,29 @@ async function handleMessage(data) {
       state.contextPollState[context] = 0;
 
       transport.invalidateContext(context);
-      const incomingSettings = extractIncomingSettings(message.payload);
-      const refreshChanged = storeSettingsForContext(context, incomingSettings);
+      transport.sendUpdateIfChanged(context, getActionLoadingImage(context, action));
 
-      await sendPropertyInspectorOptions(context, action);
+      const incomingSettings = extractIncomingSettings(message.payload);
+      storeSettingsForContext(context, incomingSettings);
 
       if (action === ACTIONS.timer) {
         ensureTimer(context);
       }
 
-      if (action === ACTIONS.monbright) {
-        await refreshMonitorBrightness(true);
-        updateBrightnessUI(context);
-      }
-
-      if (action === ACTIONS.battery) {
-        await updateBatteryImmediately(context);
-      }
-
-      if (action === ACTIONS.audio) {
-        await updateAudioImmediately(context);
-      }
-
-      if (action === ACTIONS.timer) {
-        updateTimerUI(context);
-      } else if (action !== ACTIONS.audio && action !== ACTIONS.monbright && action !== ACTIONS.battery) {
-        transport.sendUpdateIfChanged(context, getActionLoadingImage(context, action));
-      }
-
-      void pollOnce();
+      if (!state.timerInterval) startTimerLoop();
 
       if (!state.pollingInterval) startPolling();
-      else maybeRestartPolling(refreshChanged);
+      else maybeRestartPolling();
 
-      if (!state.timerInterval) startTimerLoop();
+      void sendPropertyInspectorOptions(context, action);
+
+      try {
+        await refreshImmediateAction(context, action);
+      } catch (error) {
+        warn(`willAppear refresh failed for ${context}:`, error?.message || error);
+        transport.sendUpdateIfChanged(context, getActionErrorImage(context, action));
+      }
+
       return;
     }
 
