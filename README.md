@@ -8,8 +8,11 @@ Compact Linux monitoring and control plugin for OpenDeck.
 
 * AMD, Intel, and NVIDIA support
 * Multi GPU selector for GPU and VRAM
+* Network interface selector for the Network action
+* Disk include selector with automatic mode
 * Generic Fan Speed action with selector and custom name
-* Stable battery device selector
+* Stable battery device selector with optional custom name
+* CPU and GPU bar mode selector
 * sysfs first battery handling for better Linux reliability
 * Key and encoder actions
 * Optional custom on press command on every action
@@ -25,17 +28,17 @@ Audio Volume, Alarm Timer, Monitor Brightness
 
 ## What each action shows
 
-* **CPU** shows load, temperature, and CPU power. The bar represents temperature with a 100°C cap.
-* **GPU** shows usage, power, and temperature. The bar represents temperature with a 100°C cap.
+* **CPU** shows load, temperature, and CPU power. The bar mode can be switched between temperature, load, and power.
+* **GPU** shows usage, power, and temperature. The bar mode can be switched between temperature, load, and power.
 * **VRAM** shows used and total VRAM for the selected GPU.
 * **RAM** shows used and total system memory.
-* **Network** shows download and upload throughput.
-* **Disk** shows combined usage and free space.
+* **Network** shows download and upload throughput for the selected interface or automatic detection.
+* **Disk** shows combined usage and free space for the selected disks or all detected disks in auto mode.
 * **Ping** shows latency to a custom host. The bar is capped at 100 ms.
 * **Top Proc** shows the top CPU consumer.
 * **Time and Date** works on keys and encoders.
 * **Fan Speed** shows the selected fan speed with generic hwmon detection, AMD GPU fan support, NVIDIA fan support where available, and an optional custom display name.
-* **Battery** shows the selected battery device, percentage, and charging state.
+* **Battery** shows the selected battery device, percentage, charging state, and supports an optional custom display name.
 * **Audio Volume** supports key and encoder control.
 * **Alarm Timer** is encoder based.
 * **Monitor Brightness** is encoder based through DDC or CI.
@@ -47,16 +50,19 @@ Only relevant settings are shown for the selected action.
 Available settings include:
 
 * Ping host
-* Network interface override
+* Network interface selector
 * GPU selector
+* Bar mode for CPU and GPU
 * Battery device selector
+* Custom battery name
 * Fan selector
 * Custom fan name
+* Disk include selector
 * Volume step
 * Brightness step
 * Timer step
 * Top mode
-* Refresh rate
+* Global refresh rate
 * On press action
 * Custom command
 
