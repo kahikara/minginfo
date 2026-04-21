@@ -34,6 +34,48 @@ const ACTION_LAUNCHERS = Object.freeze({
   },
 });
 
+
+function getBarMode(settings = {}) {
+  const value = String(settings.barMode || '').trim().toLowerCase();
+  return value === 'load' || value === 'power' ? value : 'temp';
+}
+
+function getCpuBarPercent(load = 0, temp = 0, cpuPower = { available: false, watts: 0 }, settings = {}) {
+  const mode = getBarMode(settings);
+
+  if (mode === 'load') {
+    return clamp(Math.round(load || 0), 0, 100);
+  }
+
+  if (mode === 'power') {
+    const watts = Number(cpuPower?.watts || 0);
+    if (!cpuPower?.available || watts <= 0) {
+      return -1;
+    }
+    return clamp(Math.round((watts / 150) * 100), 0, 100);
+  }
+
+  return clamp(Math.round(temp || 0), 0, 100);
+}
+
+function getGpuBarPercent(gpuStats = {}, settings = {}) {
+  const mode = getBarMode(settings);
+
+  if (mode === 'load') {
+    return clamp(Math.round(gpuStats.usage || 0), 0, 100);
+  }
+
+  if (mode === 'power') {
+    const power = Number(gpuStats.power || 0);
+    if (power <= 0) {
+      return -1;
+    }
+    return clamp(Math.round((power / 450) * 100), 0, 100);
+  }
+
+  return clamp(Math.round(gpuStats.temp || 0), 0, 100);
+}
+
 function parseArgs() {
   const args = process.argv.slice(2);
   let port;
@@ -490,7 +532,7 @@ async function runCustomPressCommand(context, settings, resolvedAction) {
 }
 
 function extractIncomingSettings(payload = {}) {
-  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'batteryLabel', 'fanSelector', 'fanLabel', 'selectedDisks', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
+  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'batteryLabel', 'fanSelector', 'fanLabel', 'selectedDisks', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'barMode', 'refreshRate', 'pressAction', 'pressCommand'];
 
   function visit(value, depth = 0) {
     if (!value || typeof value !== 'object' || depth > 6) {
@@ -810,8 +852,8 @@ async function pollOnce() {
           const load = Math.round(cpuData.currentLoad || 0);
           const temp = Math.round(cpuTemp.main || 0);
           const wattsText = cpuPower.available ? `${cpuPower.watts}W` : 'NO PWR';
-          const tempPercent = clamp(temp, 0, 100);
-          image = generateButtonImage('💻', 'CPU', `${load}%`, `${wattsText} | ${temp}°C`, tempPercent);
+          const barPercent = getCpuBarPercent(load, temp, cpuPower, settings);
+          image = generateButtonImage('💻', 'CPU', `${load}%`, `${wattsText} | ${temp}°C`, barPercent);
         }
       } else if (action === ACTIONS.gpu) {
         const gpuStats = getCachedGpuStats(gpuStatsCache, settings.gpuSelector);
@@ -820,8 +862,8 @@ async function pollOnce() {
           image = unavailableButton('🎮', 'GPU', 'NO GPU');
         } else {
           const usage = gpuStats.usage;
-          const tempPercent = clamp(gpuStats.temp, 0, 100);
-          image = generateButtonImage('🎮', 'GPU', `${usage}%`, `${gpuStats.power}W | ${gpuStats.temp}°C`, tempPercent);
+          const barPercent = getGpuBarPercent(gpuStats, settings);
+          image = generateButtonImage('🎮', 'GPU', `${usage}%`, `${gpuStats.power}W | ${gpuStats.temp}°C`, barPercent);
         }
       } else if (action === ACTIONS.ram) {
         const usedMemory = memData.used ?? memData.active ?? 0;
