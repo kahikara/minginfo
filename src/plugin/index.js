@@ -1070,28 +1070,46 @@ async function handleMessage(data) {
         ensureTimer(context);
       }
 
-      if (!state.timerInterval) startTimerLoop();
-
-      if (!state.pollingInterval) startPolling();
-      else maybeRestartPolling();
+      if (!state.timerInterval) {
+        startTimerLoop();
+      }
 
       void sendPropertyInspectorOptions(context, action);
 
-      setTimeout(() => {
-        if (!state.activeContexts[context]) {
-          return;
+      transport.invalidateContext(context);
+
+      try {
+        if (action === ACTIONS.audio) {
+          await updateAudioImmediately(context);
+          markContextPolled(context);
+        } else if (action === ACTIONS.monbright) {
+          await refreshMonitorBrightness(true);
+          updateBrightnessUI(context);
+          markContextPolled(context);
+        } else if (action === ACTIONS.battery) {
+          await updateBatteryImmediately(context);
+          markContextPolled(context);
+        } else if (action === ACTIONS.fan) {
+          await updateFanImmediately(context);
+          markContextPolled(context);
+        } else if (action === ACTIONS.ping) {
+          await updatePingImmediately(context);
+          markContextPolled(context);
+        } else if (action === ACTIONS.timer) {
+          updateTimerUI(context);
+        } else if (!state.pollingInProgress) {
+          await pollOnce();
         }
+      } catch (error) {
+        warn(`willAppear refresh failed for ${context}:`, error?.message || error);
+        transport.sendUpdateIfChanged(context, getActionErrorImage(context, action));
+      }
 
-        transport.invalidateContext(context);
-        transport.sendUpdateIfChanged(context, getActionLoadingImage(context, action));
-
-        Promise.resolve()
-          .then(() => refreshImmediateAction(context, action))
-          .catch((error) => {
-            warn(`willAppear refresh failed for ${context}:`, error?.message || error);
-            transport.sendUpdateIfChanged(context, getActionErrorImage(context, action));
-          });
-      }, 80);
+      if (!state.pollingInterval) {
+        startPolling();
+      } else {
+        maybeRestartPolling();
+      }
 
       return;
     }
