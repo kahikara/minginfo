@@ -31,6 +31,60 @@ function scoreNetworkInterface(iface) {
   return score;
 }
 
+
+function buildNetworkInterfaceLabel(iface = {}) {
+  const name = String(iface.iface || '').trim();
+  if (!name) {
+    return '';
+  }
+
+  const details = [];
+
+  if (iface.type) {
+    details.push(iface.type);
+  }
+
+  if (iface.operstate) {
+    details.push(iface.operstate);
+  }
+
+  if (iface.default) {
+    details.push('default');
+  }
+
+  return details.length > 0 ? `${name} (${details.join(', ')})` : name;
+}
+
+async function listAvailableNetworkInterfaces() {
+  try {
+    const interfaces = await si.networkInterfaces();
+    const byName = new Map();
+
+    for (const iface of interfaces) {
+      const name = String(iface?.iface || '').trim();
+
+      if (!name || iface.internal || iface.virtual) {
+        continue;
+      }
+
+      const existing = byName.get(name);
+      if (!existing || scoreNetworkInterface(iface) > scoreNetworkInterface(existing)) {
+        byName.set(name, iface);
+      }
+    }
+
+    return [...byName.values()]
+      .sort((a, b) => scoreNetworkInterface(b) - scoreNetworkInterface(a))
+      .map((iface) => ({
+        id: String(iface.iface || '').trim(),
+        label: buildNetworkInterfaceLabel(iface),
+      }));
+  } catch (error) {
+    warnOnce('network-interface-list-failed', `network interface list failed: ${error.message}`);
+    return [];
+  }
+}
+
 async function detectActiveInterface(force = false) {
   const now = Date.now();
 
@@ -102,4 +156,5 @@ async function getNetworkStats(overrideInterface = '') {
 
 module.exports = {
   getNetworkStats,
+  listAvailableNetworkInterfaces,
 };

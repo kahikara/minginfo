@@ -43,6 +43,7 @@
   let actionInfo = null;
   let actionContext = null;
   let currentGpuOptions = [];
+  let currentNetworkOptions = [];
   let currentBatteryOptions = [];
   let currentDiskOptions = [];
   let currentFanOptions = [];
@@ -186,6 +187,14 @@
 
   function renderGpuOptions(options = [], selectedValue = DEFAULT_SETTINGS.gpuSelector) {
     renderSelectOptions(fields.gpuSelector, options, selectedValue);
+  }
+
+  function renderNetworkOptions(options = [], selectedValue = DEFAULT_SETTINGS.networkInterface) {
+    renderSelectOptions(
+      fields.networkInterface,
+      options,
+      typeof selectedValue === 'string' ? selectedValue : DEFAULT_SETTINGS.networkInterface
+    );
   }
 
   function renderBatteryOptions(options = [], selectedValue = DEFAULT_SETTINGS.batteryDevice) {
@@ -386,7 +395,7 @@
     const normalized = normalizeSettings(settings);
 
     fields.pingHost.value = normalized.pingHost;
-    fields.networkInterface.value = normalized.networkInterface;
+    renderNetworkOptions(currentNetworkOptions, normalized.networkInterface);
     renderGpuOptions(currentGpuOptions, normalized.gpuSelector);
     renderBatteryOptions(currentBatteryOptions, normalized.batteryDevice);
     fields.batteryLabel.value = normalized.batteryLabel;
@@ -480,6 +489,18 @@
 
     if (payload.settings && Array.isArray(payload.settings.gpuOptions)) {
       return payload.settings.gpuOptions;
+    }
+
+    return [];
+  }
+
+  function extractNetworkOptions(payload = {}) {
+    if (Array.isArray(payload.networkOptions)) {
+      return payload.networkOptions;
+    }
+
+    if (payload.settings && Array.isArray(payload.settings.networkOptions)) {
+      return payload.settings.networkOptions;
     }
 
     return [];
@@ -607,6 +628,11 @@
           renderGpuOptions(currentGpuOptions, fields.gpuSelector.value);
         }
 
+        if (Array.isArray(message.payload?.networkOptions)) {
+          currentNetworkOptions = extractNetworkOptions(message.payload);
+          renderNetworkOptions(currentNetworkOptions, fields.networkInterface.value);
+        }
+
         if (Array.isArray(message.payload?.batteryOptions)) {
           currentBatteryOptions = extractBatteryOptions(message.payload);
           renderBatteryOptions(currentBatteryOptions, fields.batteryDevice.value);
@@ -631,6 +657,7 @@
           setStatus('Settings synced');
         } else if (
           Array.isArray(message.payload?.gpuOptions)
+          || Array.isArray(message.payload?.networkOptions)
           || Array.isArray(message.payload?.batteryOptions)
           || Array.isArray(message.payload?.diskOptions)
           || Array.isArray(message.payload?.fanOptions)

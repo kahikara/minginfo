@@ -10,7 +10,7 @@ const transport = require('./transport');
 
 const { getCpuPower } = require('./system/cpu');
 const { getGpuStats, listAvailableGpus } = require('./system/gpu');
-const { getNetworkStats } = require('./system/network');
+const { getNetworkStats, listAvailableNetworkInterfaces } = require('./system/network');
 const { refreshMonitorBrightness, setMonitorBrightness, getBrightnessState } = require('./system/brightness');
 const { getAudio, adjustVolume, toggleMute } = require('./system/audio');
 const { listBatteryDevices, getMouseBattery } = require('./system/battery');
@@ -318,6 +318,17 @@ function sendGpuOptionsToPropertyInspector(context) {
   });
 }
 
+async function sendNetworkOptionsToPropertyInspector(context) {
+  transport.safeSend({
+    event: 'sendToPropertyInspector',
+    context,
+    payload: {
+      settings: getSettingsForContext(context),
+      networkOptions: await listAvailableNetworkInterfaces(),
+    },
+  });
+}
+
 async function sendBatteryOptionsToPropertyInspector(context) {
   transport.safeSend({
     event: 'sendToPropertyInspector',
@@ -364,6 +375,10 @@ function actionUsesGpuOptions(actionId) {
   return actionId === ACTIONS.gpu || actionId === ACTIONS.vram;
 }
 
+function actionUsesNetworkOptions(actionId) {
+  return actionId === ACTIONS.net;
+}
+
 function actionUsesBatteryOptions(actionId) {
   return actionId === ACTIONS.battery;
 }
@@ -379,6 +394,10 @@ function actionUsesFanOptions(actionId) {
 async function sendPropertyInspectorOptions(context, actionId) {
   if (actionUsesGpuOptions(actionId)) {
     sendGpuOptionsToPropertyInspector(context);
+  }
+
+  if (actionUsesNetworkOptions(actionId)) {
+    await sendNetworkOptionsToPropertyInspector(context);
   }
 
   if (actionUsesBatteryOptions(actionId)) {

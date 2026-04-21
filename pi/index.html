@@ -18,9 +18,11 @@
           </section>
 
           <section id="networkInterfaceWrap" class="card hidden">
-            <label for="networkInterface">Network interface override</label>
-            <input id="networkInterface" type="text" placeholder="auto">
-            <p class="hint">Leave empty for automatic detection.</p>
+            <label for="networkInterface">Network interface</label>
+            <select id="networkInterface">
+              <option value="">Auto</option>
+            </select>
+            <p class="hint">Used by the Network action. Auto keeps automatic detection.</p>
           </section>
 
           <section id="diskSelectorWrap" class="card hidden">
