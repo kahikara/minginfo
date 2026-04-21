@@ -288,6 +288,51 @@ function renderTimeImage(context) {
   );
 }
 
+
+function getActionErrorImage(context, action) {
+  if (state.activeContexts[context]?.isEncoder) {
+    return generateDialImage('⚠️', 'ERROR', 'N/A', -1, 'rgb(239, 68, 68)');
+  }
+
+  const actionName = String(action || '').split('.').pop() || 'ACTION';
+  const label = actionName.length > 12 ? `${actionName.slice(0, 11)}…` : actionName.toUpperCase();
+
+  return generateButtonImage('⚠️', 'ERROR', 'N/A', label, -1);
+}
+
+function getActionLoadingImage(context, action) {
+  if (action === ACTIONS.audio) {
+    return generateDialImage('🔊', 'VOLUME', '...', -1);
+  }
+
+  if (action === ACTIONS.monbright) {
+    return generateDialImage('☀️', 'MONITOR', '...', -1);
+  }
+
+  if (action === ACTIONS.timer) {
+    return generateDialImage('⏱️', 'TIMER', '0:00', 0, 'rgb(59, 130, 246)');
+  }
+
+  if (action === ACTIONS.time) {
+    return renderTimeImage(context);
+  }
+
+  const titleMap = {
+    [ACTIONS.cpu]: 'CPU',
+    [ACTIONS.gpu]: 'GPU',
+    [ACTIONS.ram]: 'RAM',
+    [ACTIONS.vram]: 'VRAM',
+    [ACTIONS.net]: 'NET',
+    [ACTIONS.disk]: 'DISKS',
+    [ACTIONS.ping]: 'PING',
+    [ACTIONS.top]: 'TOP',
+    [ACTIONS.fan]: 'FAN SPD',
+    [ACTIONS.battery]: 'BATTERY',
+  };
+
+  return generateButtonImage('⏳', titleMap[action] || 'LOAD', '...', 'Loading...', -1);
+}
+
 async function updateBatteryImmediately(context) {
   const settings = getSettingsForContext(context);
 
@@ -831,144 +876,149 @@ async function pollOnce() {
     const cpuPower = needsCpu ? getCpuPower() : { available: false, watts: 0 };
 
     for (const { context, action, settings } of contextsToPoll) {
-      if (action === ACTIONS.audio) {
-        if (!audioData.available) {
-          transport.sendUpdateIfChanged(context, unavailableDial('🔊', 'VOLUME', 'NO AUDIO'));
-        } else {
-          const valueText = audioData.muted ? 'MUTED' : `${audioData.vol}%`;
-          const barColor = audioData.muted ? 'rgb(239, 68, 68)' : 'rgb(74, 222, 128)';
-          const icon = audioData.muted ? '🔇' : '🔊';
-          transport.sendUpdateIfChanged(context, generateDialImage(icon, 'VOLUME', valueText, audioData.vol, barColor));
+      try {
+        if (action === ACTIONS.audio) {
+          if (!audioData.available) {
+            transport.sendUpdateIfChanged(context, unavailableDial('🔊', 'VOLUME', 'NO AUDIO'));
+          } else {
+            const valueText = audioData.muted ? 'MUTED' : `${audioData.vol}%`;
+            const barColor = audioData.muted ? 'rgb(239, 68, 68)' : 'rgb(74, 222, 128)';
+            const icon = audioData.muted ? '🔇' : '🔊';
+            transport.sendUpdateIfChanged(context, generateDialImage(icon, 'VOLUME', valueText, audioData.vol, barColor));
+          }
+
+          markContextPolled(context, now);
+          continue;
+        }
+
+        if (action === ACTIONS.monbright) {
+          updateBrightnessUI(context);
+          markContextPolled(context, now);
+          continue;
+        }
+
+        if (action === ACTIONS.battery) {
+          try {
+            const batteryData = await getCachedBatteryData(batteryDataCache, settings.batteryDevice);
+            transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData, settings));
+          } catch (error) {
+            warn(`battery poll failed for ${context}:`, error?.message || error);
+            transport.sendUpdateIfChanged(context, generateButtonImage('🔋', 'BATTERY', 'N/A', 'NO DATA', -1));
+          }
+
+          markContextPolled(context, now);
+          continue;
+        }
+
+        if (action === ACTIONS.fan) {
+          const fanData = getCachedFanData(fanDataCache, settings.fanSelector);
+          transport.sendUpdateIfChanged(context, renderFanImage(fanData, settings));
+          markContextPolled(context, now);
+          continue;
+        }
+
+        if (action === ACTIONS.timer) {
+          updateTimerUI(context);
+          continue;
+        }
+
+        let image = '';
+
+        if (action === ACTIONS.cpu) {
+          if (!Number.isFinite(cpuData.currentLoad)) {
+            image = unavailableButton('💻', 'CPU', 'NO DATA');
+          } else {
+            const load = Math.round(cpuData.currentLoad || 0);
+            const temp = Math.round(cpuTemp.main || 0);
+            const wattsText = cpuPower.available ? `${cpuPower.watts}W` : 'NO PWR';
+            const barPercent = getCpuBarPercent(load, temp, cpuPower, settings);
+            image = generateButtonImage('💻', 'CPU', `${load}%`, `${wattsText} | ${temp}°C`, barPercent);
+          }
+        } else if (action === ACTIONS.gpu) {
+          const gpuStats = getCachedGpuStats(gpuStatsCache, settings.gpuSelector);
+
+          if (!gpuStats?.available) {
+            image = unavailableButton('🎮', 'GPU', 'NO GPU');
+          } else {
+            const usage = gpuStats.usage;
+            const barPercent = getGpuBarPercent(gpuStats, settings);
+            image = generateButtonImage('🎮', 'GPU', `${usage}%`, `${gpuStats.power}W | ${gpuStats.temp}°C`, barPercent);
+          }
+        } else if (action === ACTIONS.ram) {
+          const usedMemory = memData.used ?? memData.active ?? 0;
+          const totalMemory = memData.total ?? 0;
+
+          if (!totalMemory) {
+            image = unavailableButton('🧠', 'RAM', 'NO DATA');
+          } else {
+            const percent = clamp((usedMemory / totalMemory) * 100, 0, 100);
+            const usedGB = (usedMemory / (1024 ** 3)).toFixed(1);
+            const totalGB = (totalMemory / (1024 ** 3)).toFixed(1);
+            image = generateButtonImage('🧠', 'RAM', `${Math.round(percent)}%`, `${usedGB} / ${totalGB} GB`, percent);
+          }
+        } else if (action === ACTIONS.vram) {
+          const gpuStats = getCachedGpuStats(gpuStatsCache, settings.gpuSelector);
+
+          if (!gpuStats?.available || !gpuStats.vramTotal) {
+            image = unavailableButton('🎞️', 'VRAM', 'NO VRAM');
+          } else {
+            const percent = clamp((gpuStats.vramUsed / gpuStats.vramTotal) * 100, 0, 100);
+            const usedGB = (gpuStats.vramUsed / (1024 ** 3)).toFixed(1);
+            const totalGB = (gpuStats.vramTotal / (1024 ** 3)).toFixed(1);
+            image = generateButtonImage('🎞️', 'VRAM', `${Math.round(percent)}%`, `${usedGB} / ${totalGB} GB`, percent);
+          }
+        } else if (action === ACTIONS.net) {
+          const netResult = await getCachedNetworkStats(networkStatsCache, settings.networkInterface);
+
+          if (!netResult.available || netResult.data.length === 0) {
+            image = unavailableButton('🌐', 'NET', 'NO NET');
+          } else {
+            const download = (((netResult.data[0].rx_sec || 0) * 8) / 1000000).toFixed(1);
+            const upload = (((netResult.data[0].tx_sec || 0) * 8) / 1000000).toFixed(1);
+            const ifaceLabel = (netResult.iface || 'auto').slice(0, 14);
+            image = generateFooterButtonImage('🌐', 'NET', `↓${download}`, `↑${upload}`, ifaceLabel);
+          }
+        } else if (action === ACTIONS.disk) {
+          const diskSummary = summarizeDisks(diskData, settings.selectedDisks);
+
+          if (!diskSummary.available) {
+            image = generateButtonImage('🖴', 'DISKS', '...', 'Loading...', -1);
+          } else {
+            image = generateButtonImage('🖴', 'DISKS', `${Math.round(diskSummary.percent)}%`, `${Math.round(diskSummary.freeGB)} GB free`, diskSummary.percent);
+          }
+        } else if (action === ACTIONS.ping) {
+          const pingState = getPingState(context);
+          const target = settings.pingHost || '1.1.1.1';
+          const targetLabel = target.length > 12 ? `${target.slice(0, 11)}…` : target;
+
+          if (Date.now() - pingState.lastPingTime >= 5000) {
+            pingState.lastPingTime = Date.now();
+            await getPing(context, target, false);
+          }
+
+          const pingPercent = clamp(pingState.lastPing, 0, 100);
+          image = generateButtonImage('⚡', 'PING', `${pingState.lastPing} ms`, targetLabel, pingPercent);
+        } else if (action === ACTIONS.top) {
+          const topProcess = getTopProcessSummary(procData, settings.topMode);
+
+          if (topProcess) {
+            image = generateButtonImage('🔥', 'TOP', topProcess.name, `${topProcess.cpu}% CPU`, topProcess.cpu);
+          } else {
+            image = unavailableButton('🔥', 'TOP', 'IDLE');
+          }
+        } else if (action === ACTIONS.time) {
+          image = renderTimeImage(context);
+        }
+
+        if (image) {
+          transport.sendUpdateIfChanged(context, image);
         }
 
         markContextPolled(context, now);
-        continue;
+      } catch (error) {
+        warn(`context render failed for ${context}:`, error?.message || error);
+        transport.sendUpdateIfChanged(context, getActionErrorImage(context, action));
       }
-
-      if (action === ACTIONS.monbright) {
-        updateBrightnessUI(context);
-        markContextPolled(context, now);
-        continue;
-      }
-
-      if (action === ACTIONS.battery) {
-        try {
-          const batteryData = await getCachedBatteryData(batteryDataCache, settings.batteryDevice);
-          transport.sendUpdateIfChanged(context, renderBatteryImage(batteryData, settings));
-        } catch (error) {
-          warn(`battery poll failed for ${context}:`, error?.message || error);
-          transport.sendUpdateIfChanged(context, generateButtonImage('🔋', 'BATTERY', 'N/A', 'NO DATA', -1));
-        }
-
-        markContextPolled(context, now);
-        continue;
-      }
-
-      if (action === ACTIONS.fan) {
-        const fanData = getCachedFanData(fanDataCache, settings.fanSelector);
-        transport.sendUpdateIfChanged(context, renderFanImage(fanData, settings));
-        markContextPolled(context, now);
-        continue;
-      }
-
-      if (action === ACTIONS.timer) {
-        updateTimerUI(context);
-        continue;
-      }
-
-      let image = '';
-
-      if (action === ACTIONS.cpu) {
-        if (!Number.isFinite(cpuData.currentLoad)) {
-          image = unavailableButton('💻', 'CPU', 'NO DATA');
-        } else {
-          const load = Math.round(cpuData.currentLoad || 0);
-          const temp = Math.round(cpuTemp.main || 0);
-          const wattsText = cpuPower.available ? `${cpuPower.watts}W` : 'NO PWR';
-          const barPercent = getCpuBarPercent(load, temp, cpuPower, settings);
-          image = generateButtonImage('💻', 'CPU', `${load}%`, `${wattsText} | ${temp}°C`, barPercent);
-        }
-      } else if (action === ACTIONS.gpu) {
-        const gpuStats = getCachedGpuStats(gpuStatsCache, settings.gpuSelector);
-
-        if (!gpuStats?.available) {
-          image = unavailableButton('🎮', 'GPU', 'NO GPU');
-        } else {
-          const usage = gpuStats.usage;
-          const barPercent = getGpuBarPercent(gpuStats, settings);
-          image = generateButtonImage('🎮', 'GPU', `${usage}%`, `${gpuStats.power}W | ${gpuStats.temp}°C`, barPercent);
-        }
-      } else if (action === ACTIONS.ram) {
-        const usedMemory = memData.used ?? memData.active ?? 0;
-        const totalMemory = memData.total ?? 0;
-
-        if (!totalMemory) {
-          image = unavailableButton('🧠', 'RAM', 'NO DATA');
-        } else {
-          const percent = clamp((usedMemory / totalMemory) * 100, 0, 100);
-          const usedGB = (usedMemory / (1024 ** 3)).toFixed(1);
-          const totalGB = (totalMemory / (1024 ** 3)).toFixed(1);
-          image = generateButtonImage('🧠', 'RAM', `${Math.round(percent)}%`, `${usedGB} / ${totalGB} GB`, percent);
-        }
-      } else if (action === ACTIONS.vram) {
-        const gpuStats = getCachedGpuStats(gpuStatsCache, settings.gpuSelector);
-
-        if (!gpuStats?.available || !gpuStats.vramTotal) {
-          image = unavailableButton('🎞️', 'VRAM', 'NO VRAM');
-        } else {
-          const percent = clamp((gpuStats.vramUsed / gpuStats.vramTotal) * 100, 0, 100);
-          const usedGB = (gpuStats.vramUsed / (1024 ** 3)).toFixed(1);
-          const totalGB = (gpuStats.vramTotal / (1024 ** 3)).toFixed(1);
-          image = generateButtonImage('🎞️', 'VRAM', `${Math.round(percent)}%`, `${usedGB} / ${totalGB} GB`, percent);
-        }
-      } else if (action === ACTIONS.net) {
-        const netResult = await getCachedNetworkStats(networkStatsCache, settings.networkInterface);
-
-        if (!netResult.available || netResult.data.length === 0) {
-          image = unavailableButton('🌐', 'NET', 'NO NET');
-        } else {
-          const download = (((netResult.data[0].rx_sec || 0) * 8) / 1000000).toFixed(1);
-          const upload = (((netResult.data[0].tx_sec || 0) * 8) / 1000000).toFixed(1);
-          const ifaceLabel = (netResult.iface || 'auto').slice(0, 14);
-          image = generateFooterButtonImage('🌐', 'NET', `↓${download}`, `↑${upload}`, ifaceLabel);
-        }
-      } else if (action === ACTIONS.disk) {
-        const diskSummary = summarizeDisks(diskData, settings.selectedDisks);
-
-        if (!diskSummary.available) {
-          image = generateButtonImage('🖴', 'DISKS', '...', 'Loading...', -1);
-        } else {
-          image = generateButtonImage('🖴', 'DISKS', `${Math.round(diskSummary.percent)}%`, `${Math.round(diskSummary.freeGB)} GB free`, diskSummary.percent);
-        }
-      } else if (action === ACTIONS.ping) {
-        const pingState = getPingState(context);
-        const target = settings.pingHost || '1.1.1.1';
-        const targetLabel = target.length > 12 ? `${target.slice(0, 11)}…` : target;
-
-        if (Date.now() - pingState.lastPingTime >= 5000) {
-          pingState.lastPingTime = Date.now();
-          await getPing(context, target, false);
-        }
-
-        const pingPercent = clamp(pingState.lastPing, 0, 100);
-        image = generateButtonImage('⚡', 'PING', `${pingState.lastPing} ms`, targetLabel, pingPercent);
-      } else if (action === ACTIONS.top) {
-        const topProcess = getTopProcessSummary(procData, settings.topMode);
-
-        if (topProcess) {
-          image = generateButtonImage('🔥', 'TOP', topProcess.name, `${topProcess.cpu}% CPU`, topProcess.cpu);
-        } else {
-          image = unavailableButton('🔥', 'TOP', 'IDLE');
-        }
-      } else if (action === ACTIONS.time) {
-        image = renderTimeImage(context);
-      }
-
-      if (image) {
-        transport.sendUpdateIfChanged(context, image);
-      }
-
-      markContextPolled(context, now);
     }
   } catch (error) {
     warn('Poll loop failed:', error.message);
@@ -1030,10 +1080,8 @@ async function handleMessage(data) {
 
       if (action === ACTIONS.timer) {
         updateTimerUI(context);
-      }
-
-      if (action === ACTIONS.disk) {
-        transport.sendUpdateIfChanged(context, generateButtonImage('🖴', 'DISKS', '...', 'Loading...', -1));
+      } else if (action !== ACTIONS.audio && action !== ACTIONS.monbright && action !== ACTIONS.battery) {
+        transport.sendUpdateIfChanged(context, getActionLoadingImage(context, action));
       }
 
       transport.invalidateAllVisible();
