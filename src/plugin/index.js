@@ -4,7 +4,7 @@ const si = require('systeminformation');
 const state = require('./state');
 const { ACTIONS } = require('./constants');
 const { log, warn, clamp, runCommand, commandExists } = require('./utils');
-const { storeSettingsForContext, getSettingsForContext, getPluginWideSettings, getResolvedAction } = require('./settings');
+const { storeSettingsForContext, getSettingsForContext, getResolvedAction } = require('./settings');
 const { generateButtonImage, generateBatteryButtonImage, generateCenteredHeaderButtonImage, generateDialImage, generateFooterButtonImage, unavailableButton, unavailableDial } = require('./renderer');
 const transport = require('./transport');
 
@@ -33,6 +33,64 @@ const ACTION_LAUNCHERS = Object.freeze({
     failure: { icon: '🎮', title: 'GPU', line1: 'NO LACT', line2: 'Install it' },
   },
 });
+
+const PER_ACTION_POLL_TICK_MS = 1000;
+
+function getRefreshRateMs(settings = {}) {
+  return clamp(Number.parseInt(settings.refreshRate, 10) || 3, 1, 10) * 1000;
+}
+
+function getBarMode(settings = {}) {
+  const value = String(settings.barMode || '').trim().toLowerCase();
+  return value === 'load' || value === 'power' ? value : 'temp';
+}
+
+function getCpuBarPercent(cpuLoad = 0, cpuTemp = 0, cpuPower = { available: false, watts: 0 }, settings = {}) {
+  const mode = getBarMode(settings);
+
+  if (mode === 'load') {
+    return clamp(Math.round(cpuLoad || 0), 0, 100);
+  }
+
+  if (mode === 'power') {
+    const watts = Number(cpuPower?.watts || 0);
+    return cpuPower?.available && watts > 0
+      ? clamp(Math.round((watts / 150) * 100), 0, 100)
+      : -1;
+  }
+
+  return clamp(Math.round(cpuTemp || 0), 0, 100);
+}
+
+function getGpuBarPercent(gpuStats = {}, settings = {}) {
+  const mode = getBarMode(settings);
+
+  if (mode === 'load') {
+    return clamp(Math.round(gpuStats.usage || 0), 0, 100);
+  }
+
+  if (mode === 'power') {
+    const power = Number(gpuStats.power || 0);
+    return power > 0
+      ? clamp(Math.round((power / 450) * 100), 0, 100)
+      : -1;
+  }
+
+  return clamp(Math.round(gpuStats.temp || 0), 0, 100);
+}
+
+function isContextPollDue(context, action, settings = {}, now = Date.now()) {
+  if (action === ACTIONS.timer) {
+    return false;
+  }
+
+  const last = Number(state.contextPollState[context] || 0);
+  return (now - last) >= getRefreshRateMs(settings);
+}
+
+function markContextPolled(context, now = Date.now()) {
+  state.contextPollState[context] = now;
+}
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -355,32 +413,41 @@ async function sendPropertyInspectorOptions(context, actionId) {
 async function refreshImmediateAction(context, actionId) {
   if (actionId === ACTIONS.audio) {
     await updateAudioImmediately(context);
+    markContextPolled(context);
     return;
   }
 
   if (actionId === ACTIONS.monbright) {
     updateBrightnessUI(context);
+    markContextPolled(context);
     return;
   }
 
   if (actionId === ACTIONS.battery) {
     await updateBatteryImmediately(context);
+    markContextPolled(context);
     return;
   }
 
   if (actionId === ACTIONS.fan) {
     await updateFanImmediately(context);
+    markContextPolled(context);
     return;
   }
 
   if (actionId === ACTIONS.ping) {
     await updatePingImmediately(context);
+    markContextPolled(context);
     return;
   }
 
   if (actionId === ACTIONS.timer) {
     updateTimerUI(context);
+    return;
   }
+
+  state.contextPollState[context] = 0;
+  await pollOnce();
 }
 
 async function openActionTool(action, context) {
@@ -490,7 +557,7 @@ async function runCustomPressCommand(context, settings, resolvedAction) {
 }
 
 function extractIncomingSettings(payload = {}) {
-  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'batteryLabel', 'fanSelector', 'fanLabel', 'selectedDisks', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
+  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'batteryLabel', 'fanSelector', 'fanLabel', 'selectedDisks', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'barMode', 'refreshRate', 'pressAction', 'pressCommand'];
 
   function visit(value, depth = 0) {
     if (!value || typeof value !== 'object' || depth > 6) {
@@ -538,16 +605,10 @@ function trackPromise(promises, label, work) {
   );
 }
 
-function maybeRestartPolling(refreshChanged = false) {
-  const desired = clamp(Number.parseInt(getPluginWideSettings().refreshRate, 10) || 3, 1, 10) * 1000;
-
-  if (!state.pollingInterval) return;
-  if (!refreshChanged && desired === state.currentPollingRateMs) return;
-
-  clearInterval(state.pollingInterval);
-  state.pollingInterval = null;
-  state.currentPollingRateMs = 0;
-  startPolling();
+function maybeRestartPolling() {
+  if (!state.pollingInterval && Object.keys(state.activeContexts).length > 0) {
+    startPolling();
+  }
 }
 
 function cleanupRuntime() {
@@ -560,6 +621,7 @@ function cleanupRuntime() {
   state.ddcutilTimeout = null;
   state.pollingInProgress = false;
   state.currentPollingRateMs = 0;
+  state.contextPollState = Object.create(null);
 
   for (const context of Object.keys(state.transientImageTimers)) {
     transport.clearTransientTimer(context);
@@ -661,8 +723,29 @@ async function pollOnce() {
   state.pollingInProgress = true;
 
   try {
-    const actionsList = Object.values(state.activeContexts).map((entry) => entry.action);
-    if (actionsList.length === 0) return;
+    const now = Date.now();
+    const contextsToPoll = [];
+
+    for (const context of Object.keys(state.activeContexts)) {
+      if (state.transientImageTimers[context]) {
+        continue;
+      }
+
+      const { action } = state.activeContexts[context];
+      const settings = getSettingsForContext(context);
+
+      if (!isContextPollDue(context, action, settings, now)) {
+        continue;
+      }
+
+      contextsToPoll.push({ context, action, settings });
+    }
+
+    if (contextsToPoll.length === 0) {
+      return;
+    }
+
+    const actionsList = contextsToPoll.map((entry) => entry.action);
 
     let cpuData = {};
     let cpuTemp = {};
@@ -733,14 +816,7 @@ async function pollOnce() {
 
     const preloadPromises = [];
 
-    for (const context of Object.keys(state.activeContexts)) {
-      if (state.transientImageTimers[context]) {
-        continue;
-      }
-
-      const { action } = state.activeContexts[context];
-      const settings = getSettingsForContext(context);
-
+    for (const { action, settings } of contextsToPoll) {
       if (action === ACTIONS.net) {
         preloadPromises.push(getCachedNetworkStats(networkStatsCache, settings.networkInterface));
       }
@@ -754,14 +830,7 @@ async function pollOnce() {
 
     const cpuPower = needsCpu ? getCpuPower() : { available: false, watts: 0 };
 
-    for (const context of Object.keys(state.activeContexts)) {
-      const { action } = state.activeContexts[context];
-      const settings = getSettingsForContext(context);
-
-      if (state.transientImageTimers[context]) {
-        continue;
-      }
-
+    for (const { context, action, settings } of contextsToPoll) {
       if (action === ACTIONS.audio) {
         if (!audioData.available) {
           transport.sendUpdateIfChanged(context, unavailableDial('🔊', 'VOLUME', 'NO AUDIO'));
@@ -771,11 +840,14 @@ async function pollOnce() {
           const icon = audioData.muted ? '🔇' : '🔊';
           transport.sendUpdateIfChanged(context, generateDialImage(icon, 'VOLUME', valueText, audioData.vol, barColor));
         }
+
+        markContextPolled(context, now);
         continue;
       }
 
       if (action === ACTIONS.monbright) {
         updateBrightnessUI(context);
+        markContextPolled(context, now);
         continue;
       }
 
@@ -787,12 +859,15 @@ async function pollOnce() {
           warn(`battery poll failed for ${context}:`, error?.message || error);
           transport.sendUpdateIfChanged(context, generateButtonImage('🔋', 'BATTERY', 'N/A', 'NO DATA', -1));
         }
+
+        markContextPolled(context, now);
         continue;
       }
 
       if (action === ACTIONS.fan) {
         const fanData = getCachedFanData(fanDataCache, settings.fanSelector);
         transport.sendUpdateIfChanged(context, renderFanImage(fanData, settings));
+        markContextPolled(context, now);
         continue;
       }
 
@@ -810,8 +885,8 @@ async function pollOnce() {
           const load = Math.round(cpuData.currentLoad || 0);
           const temp = Math.round(cpuTemp.main || 0);
           const wattsText = cpuPower.available ? `${cpuPower.watts}W` : 'NO PWR';
-          const tempPercent = clamp(temp, 0, 100);
-          image = generateButtonImage('💻', 'CPU', `${load}%`, `${wattsText} | ${temp}°C`, tempPercent);
+          const barPercent = getCpuBarPercent(load, temp, cpuPower, settings);
+          image = generateButtonImage('💻', 'CPU', `${load}%`, `${wattsText} | ${temp}°C`, barPercent);
         }
       } else if (action === ACTIONS.gpu) {
         const gpuStats = getCachedGpuStats(gpuStatsCache, settings.gpuSelector);
@@ -820,8 +895,8 @@ async function pollOnce() {
           image = unavailableButton('🎮', 'GPU', 'NO GPU');
         } else {
           const usage = gpuStats.usage;
-          const tempPercent = clamp(gpuStats.temp, 0, 100);
-          image = generateButtonImage('🎮', 'GPU', `${usage}%`, `${gpuStats.power}W | ${gpuStats.temp}°C`, tempPercent);
+          const barPercent = getGpuBarPercent(gpuStats, settings);
+          image = generateButtonImage('🎮', 'GPU', `${usage}%`, `${gpuStats.power}W | ${gpuStats.temp}°C`, barPercent);
         }
       } else if (action === ACTIONS.ram) {
         const usedMemory = memData.used ?? memData.active ?? 0;
@@ -892,6 +967,8 @@ async function pollOnce() {
       if (image) {
         transport.sendUpdateIfChanged(context, image);
       }
+
+      markContextPolled(context, now);
     }
   } catch (error) {
     warn('Poll loop failed:', error.message);
@@ -901,7 +978,7 @@ async function pollOnce() {
 }
 
 function startPolling() {
-  state.currentPollingRateMs = clamp(Number.parseInt(getPluginWideSettings().refreshRate, 10) || 3, 1, 10) * 1000;
+  state.currentPollingRateMs = PER_ACTION_POLL_TICK_MS;
   void pollOnce();
   state.pollingInterval = setInterval(() => {
     void pollOnce();
@@ -926,6 +1003,7 @@ async function handleMessage(data) {
         action,
         isEncoder: message.payload?.controller === 'Encoder',
       };
+      state.contextPollState[context] = 0;
 
       transport.invalidateContext(context);
       const incomingSettings = extractIncomingSettings(message.payload);
@@ -990,11 +1068,6 @@ async function handleMessage(data) {
         transport.invalidateContext(context);
 
         await sendPropertyInspectorOptions(context, resolvedAction);
-
-        if (resolvedAction === ACTIONS.gpu) {
-          await pollOnce();
-        }
-
         await refreshImmediateAction(context, resolvedAction);
 
         maybeRestartPolling(refreshChanged);
@@ -1008,6 +1081,7 @@ async function handleMessage(data) {
       delete state.lastSentImages[context];
       delete state.contextSettings[context];
       delete state.pingStates[context];
+      delete state.contextPollState[context];
       transport.clearTransientTimer(context);
 
       if (Object.keys(state.activeContexts).length === 0) {

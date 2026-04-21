@@ -5,6 +5,7 @@
     pingHost: $('pingHost'),
     networkInterface: $('networkInterface'),
     gpuSelector: $('gpuSelector'),
+    barMode: $('barMode'),
     batteryDevice: $('batteryDevice'),
     batteryLabel: $('batteryLabel'),
     fanSelector: $('fanSelector'),
@@ -23,6 +24,7 @@
   const pingHostWrap = $('pingHostWrap');
   const networkInterfaceWrap = $('networkInterfaceWrap');
   const gpuSelectorWrap = $('gpuSelectorWrap');
+  const barModeWrap = $('barModeWrap');
   const batterySelectorWrap = $('batterySelectorWrap');
   const batteryLabelWrap = $('batteryLabelWrap');
   const diskSelectorWrap = $('diskSelectorWrap');
@@ -49,6 +51,7 @@
     pingHost: '1.1.1.1',
     networkInterface: '',
     gpuSelector: 'auto',
+    barMode: 'temp',
     batteryDevice: 'auto',
     batteryLabel: '',
     fanSelector: 'auto',
@@ -82,6 +85,11 @@
   function actionUsesGpuSelector() {
     const actionId = getActionId();
     return actionId.endsWith('.gpu') || actionId.endsWith('.vram');
+  }
+
+  function actionUsesBarMode() {
+    const actionId = getActionId();
+    return actionId.endsWith('.cpu') || actionId.endsWith('.gpu');
   }
 
   function actionUsesBatterySelector() {
@@ -133,6 +141,7 @@
     pingHostWrap.classList.toggle('hidden', !actionUsesPingHost());
     networkInterfaceWrap.classList.toggle('hidden', !actionUsesNetworkInterface());
     gpuSelectorWrap.classList.toggle('hidden', !actionUsesGpuSelector());
+    barModeWrap.classList.toggle('hidden', !actionUsesBarMode());
     batterySelectorWrap.classList.toggle('hidden', !actionUsesBatterySelector());
     batteryLabelWrap.classList.toggle('hidden', !actionUsesBatteryLabel());
     diskSelectorWrap.classList.toggle('hidden', !actionUsesDiskSelector());
@@ -355,6 +364,10 @@
       normalized.topMode = settings.topMode;
     }
 
+    if (settings.barMode === 'temp' || settings.barMode === 'load' || settings.barMode === 'power') {
+      normalized.barMode = settings.barMode;
+    }
+
     const refresh = Number.parseInt(settings.refreshRate, 10);
     normalized.refreshRate = [1, 3, 5, 10].includes(refresh) ? refresh : DEFAULT_SETTINGS.refreshRate;
 
@@ -384,6 +397,7 @@
     fields.brightnessStep.value = String(normalized.brightnessStep);
     fields.timerStep.value = String(normalized.timerStep);
     fields.topMode.value = normalized.topMode;
+    fields.barMode.value = normalized.barMode;
     fields.refreshRate.value = String(normalized.refreshRate);
     fields.pressAction.value = normalized.pressAction;
     fields.pressCommand.value = normalized.pressCommand;
@@ -405,6 +419,7 @@
       brightnessStep: fields.brightnessStep.value,
       timerStep: fields.timerStep.value,
       topMode: fields.topMode.value,
+      barMode: fields.barMode.value,
       refreshRate: fields.refreshRate.value,
       pressAction: fields.pressAction.value,
       pressCommand: fields.pressCommand.value,
@@ -420,7 +435,7 @@
   }
 
   function extractIncomingSettings(payload = {}) {
-    const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'batteryLabel', 'selectedDisks', 'fanSelector', 'fanLabel', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
+    const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'barMode', 'batteryDevice', 'batteryLabel', 'selectedDisks', 'fanSelector', 'fanLabel', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'refreshRate', 'pressAction', 'pressCommand'];
 
     function visit(value, depth = 0) {
       if (!value || typeof value !== 'object' || depth > 6) {

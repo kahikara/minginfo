@@ -64,6 +64,10 @@ function normalizeSettings(settings = {}) {
     normalized.topMode = settings.topMode;
   }
 
+  if (settings.barMode === 'temp' || settings.barMode === 'load' || settings.barMode === 'power') {
+    normalized.barMode = settings.barMode;
+  }
+
   const refresh = Number.parseInt(settings.refreshRate, 10);
   normalized.refreshRate = [1, 3, 5, 10].includes(refresh) ? refresh : DEFAULT_SETTINGS.refreshRate;
 
@@ -87,7 +91,6 @@ function normalizePluginWideSettings(settings = {}) {
 }
 
 function storeSettingsForContext(context, settings = {}) {
-  const before = getPluginWideSettings().refreshRate;
   const currentSettings = context ? (state.contextSettings[context] || {}) : {};
   const normalized = normalizeSettings({
     ...currentSettings,
@@ -98,14 +101,7 @@ function storeSettingsForContext(context, settings = {}) {
     state.contextSettings[context] = normalized;
   }
 
-  if (hasOwn(settings, 'refreshRate')) {
-    state.globalPluginSettings = normalizePluginWideSettings({
-      ...state.globalPluginSettings,
-      refreshRate: settings.refreshRate,
-    });
-  }
-
-  return before !== getPluginWideSettings().refreshRate;
+  return false;
 }
 
 function getSettingsForContext(context) {

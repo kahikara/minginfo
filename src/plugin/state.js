@@ -7,6 +7,7 @@ module.exports = {
   transientImageTimers: Object.create(null),
   contextSettings: Object.create(null),
   pingStates: Object.create(null),
+  contextPollState: Object.create(null),
 
   globalPluginSettings: { ...DEFAULT_SETTINGS },
 

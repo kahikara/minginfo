@@ -38,6 +38,16 @@
             <p class="hint">Used by the GPU and VRAM actions.</p>
           </section>
 
+          <section id="barModeWrap" class="card hidden">
+            <label for="barMode">Bar mode</label>
+            <select id="barMode">
+              <option value="temp">Temperature</option>
+              <option value="load">Load</option>
+              <option value="power">Power</option>
+            </select>
+            <p class="hint">Used by the CPU and GPU actions.</p>
+          </section>
+
           <section id="batterySelectorWrap" class="card hidden">
             <label for="batteryDevice">Battery device</label>
             <select id="batteryDevice">
@@ -119,7 +129,7 @@
             <option value="5">5 seconds</option>
             <option value="10">10 seconds</option>
           </select>
-          <p class="hint">Plugin wide polling interval.</p>
+          <p class="hint">Polling interval for this action.</p>
         </section>
 
         <section class="card utilityCard utilityActionsCard">
