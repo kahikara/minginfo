@@ -17,8 +17,8 @@ function safeSend(payload) {
   }
 }
 
-function sendUpdateIfChanged(context, image) {
-  if (!image || image === state.lastSentImages[context]) return;
+function sendImage(context, image, track = true) {
+  if (!image) return;
 
   safeSend({
     event: 'setImage',
@@ -29,7 +29,18 @@ function sendUpdateIfChanged(context, image) {
     },
   });
 
-  state.lastSentImages[context] = image;
+  if (track) {
+    state.lastSentImages[context] = image;
+  }
+}
+
+function sendForceUpdate(context, image, track = false) {
+  sendImage(context, image, track);
+}
+
+function sendUpdateIfChanged(context, image) {
+  if (!image || image === state.lastSentImages[context]) return;
+  sendImage(context, image, true);
 }
 
 function invalidateContext(context) {
@@ -62,6 +73,7 @@ function showTransientImage(context, image, duration = TRANSIENT_IMAGE_MS) {
 module.exports = {
   setWebSocket,
   safeSend,
+  sendForceUpdate,
   sendUpdateIfChanged,
   invalidateContext,
   invalidateAllVisible,
