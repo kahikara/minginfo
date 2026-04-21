@@ -1010,10 +1010,16 @@ async function handleMessage(data) {
       delete state.pingStates[context];
       transport.clearTransientTimer(context);
 
-      if (Object.keys(state.activeContexts).length === 0) {
+      const remainingContexts = Object.keys(state.activeContexts);
+
+      if (remainingContexts.length === 0) {
         cleanupRuntime();
         state.procCache = { timestamp: 0, data: { list: [] } };
+      } else {
+        transport.invalidateAllVisible();
+        void pollOnce();
       }
+
       return;
     }
 
