@@ -1063,9 +1063,6 @@ async function handleMessage(data) {
       };
       state.contextPollState[context] = 0;
 
-      transport.invalidateContext(context);
-      transport.sendUpdateIfChanged(context, getActionLoadingImage(context, action));
-
       const incomingSettings = extractIncomingSettings(message.payload);
       storeSettingsForContext(context, incomingSettings);
 
@@ -1080,12 +1077,21 @@ async function handleMessage(data) {
 
       void sendPropertyInspectorOptions(context, action);
 
-      try {
-        await refreshImmediateAction(context, action);
-      } catch (error) {
-        warn(`willAppear refresh failed for ${context}:`, error?.message || error);
-        transport.sendUpdateIfChanged(context, getActionErrorImage(context, action));
-      }
+      setTimeout(() => {
+        if (!state.activeContexts[context]) {
+          return;
+        }
+
+        transport.invalidateContext(context);
+        transport.sendUpdateIfChanged(context, getActionLoadingImage(context, action));
+
+        Promise.resolve()
+          .then(() => refreshImmediateAction(context, action))
+          .catch((error) => {
+            warn(`willAppear refresh failed for ${context}:`, error?.message || error);
+            transport.sendUpdateIfChanged(context, getActionErrorImage(context, action));
+          });
+      }, 80);
 
       return;
     }
