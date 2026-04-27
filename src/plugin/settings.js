@@ -68,6 +68,10 @@ function normalizeSettings(settings = {}) {
     normalized.barMode = settings.barMode;
   }
 
+  if (settings.ramMode === 'available' || settings.ramMode === 'used') {
+    normalized.ramMode = settings.ramMode;
+  }
+
   const refresh = Number.parseInt(settings.refreshRate, 10);
   normalized.refreshRate = [1, 3, 5, 10].includes(refresh) ? refresh : DEFAULT_SETTINGS.refreshRate;
 

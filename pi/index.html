@@ -50,6 +50,15 @@
             <p class="hint">Used by the CPU and GPU actions.</p>
           </section>
 
+          <section id="ramModeWrap" class="card hidden">
+            <label for="ramMode">RAM mode</label>
+            <select id="ramMode">
+              <option value="available">Used memory</option>
+              <option value="used">Used including buffer/cache</option>
+            </select>
+            <p class="hint">Used memory excludes reusable Linux buffer/cache via available memory.</p>
+          </section>
+
           <section id="batterySelectorWrap" class="card hidden">
             <label for="batteryDevice">Battery device</label>
             <select id="batteryDevice">

@@ -6,6 +6,7 @@
     networkInterface: $('networkInterface'),
     gpuSelector: $('gpuSelector'),
     barMode: $('barMode'),
+    ramMode: $('ramMode'),
     batteryDevice: $('batteryDevice'),
     batteryLabel: $('batteryLabel'),
     fanSelector: $('fanSelector'),
@@ -25,6 +26,7 @@
   const networkInterfaceWrap = $('networkInterfaceWrap');
   const gpuSelectorWrap = $('gpuSelectorWrap');
   const barModeWrap = $('barModeWrap');
+  const ramModeWrap = $('ramModeWrap');
   const batterySelectorWrap = $('batterySelectorWrap');
   const batteryLabelWrap = $('batteryLabelWrap');
   const diskSelectorWrap = $('diskSelectorWrap');
@@ -53,6 +55,7 @@
     networkInterface: '',
     gpuSelector: 'auto',
     barMode: 'temp',
+    ramMode: 'available',
     batteryDevice: 'auto',
     batteryLabel: '',
     fanSelector: 'auto',
@@ -91,6 +94,10 @@
   function actionUsesBarMode() {
     const actionId = getActionId();
     return actionId.endsWith('.cpu') || actionId.endsWith('.gpu');
+  }
+
+  function actionUsesRamMode() {
+    return getActionId().endsWith('.ram');
   }
 
   function actionUsesBatterySelector() {
@@ -143,6 +150,7 @@
     networkInterfaceWrap.classList.toggle('hidden', !actionUsesNetworkInterface());
     gpuSelectorWrap.classList.toggle('hidden', !actionUsesGpuSelector());
     barModeWrap.classList.toggle('hidden', !actionUsesBarMode());
+    ramModeWrap.classList.toggle('hidden', !actionUsesRamMode());
     batterySelectorWrap.classList.toggle('hidden', !actionUsesBatterySelector());
     batteryLabelWrap.classList.toggle('hidden', !actionUsesBatteryLabel());
     diskSelectorWrap.classList.toggle('hidden', !actionUsesDiskSelector());
@@ -377,6 +385,10 @@
       normalized.barMode = settings.barMode;
     }
 
+    if (settings.ramMode === 'available' || settings.ramMode === 'used') {
+      normalized.ramMode = settings.ramMode;
+    }
+
     const refresh = Number.parseInt(settings.refreshRate, 10);
     normalized.refreshRate = [1, 3, 5, 10].includes(refresh) ? refresh : DEFAULT_SETTINGS.refreshRate;
 
@@ -407,6 +419,7 @@
     fields.timerStep.value = String(normalized.timerStep);
     fields.topMode.value = normalized.topMode;
     fields.barMode.value = normalized.barMode;
+    fields.ramMode.value = normalized.ramMode;
     fields.refreshRate.value = String(normalized.refreshRate);
     fields.pressAction.value = normalized.pressAction;
     fields.pressCommand.value = normalized.pressCommand;
@@ -429,6 +442,7 @@
       timerStep: fields.timerStep.value,
       topMode: fields.topMode.value,
       barMode: fields.barMode.value,
+      ramMode: fields.ramMode.value,
       refreshRate: fields.refreshRate.value,
       pressAction: fields.pressAction.value,
       pressCommand: fields.pressCommand.value,

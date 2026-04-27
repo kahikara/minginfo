@@ -76,6 +76,25 @@ function getGpuBarPercent(gpuStats = {}, settings = {}) {
   return clamp(Math.round(gpuStats.temp || 0), 0, 100);
 }
 
+function getRamUsage(memData = {}, settings = {}) {
+  const total = Number(memData.total || 0);
+  if (!total) {
+    return { total: 0, used: 0, percent: 0 };
+  }
+
+  const mode = String(settings.ramMode || '').trim() === 'used' ? 'used' : 'available';
+  const used = mode === 'used'
+    ? Number(memData.used ?? memData.active ?? 0)
+    : total - Number(memData.available ?? (total - Number(memData.used ?? memData.active ?? 0)));
+
+  const safeUsed = clamp(used, 0, total);
+  return {
+    total,
+    used: safeUsed,
+    percent: clamp((safeUsed / total) * 100, 0, 100),
+  };
+}
+
 function parseArgs() {
   const args = process.argv.slice(2);
   let port;
@@ -551,7 +570,7 @@ async function runCustomPressCommand(context, settings, resolvedAction) {
 }
 
 function extractIncomingSettings(payload = {}) {
-  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'batteryLabel', 'fanSelector', 'fanLabel', 'selectedDisks', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'barMode', 'refreshRate', 'pressAction', 'pressCommand'];
+  const knownKeys = ['pingHost', 'networkInterface', 'gpuSelector', 'batteryDevice', 'batteryLabel', 'fanSelector', 'fanLabel', 'selectedDisks', 'volumeStep', 'brightnessStep', 'timerStep', 'topMode', 'barMode', 'ramMode', 'refreshRate', 'pressAction', 'pressCommand'];
 
   function visit(value, depth = 0) {
     if (!value || typeof value !== 'object' || depth > 6) {
@@ -885,16 +904,14 @@ async function pollOnce() {
           image = generateButtonImage('🎮', 'GPU', `${usage}%`, `${gpuStats.power}W | ${gpuStats.temp}°C`, barPercent);
         }
       } else if (action === ACTIONS.ram) {
-        const usedMemory = memData.used ?? memData.active ?? 0;
-        const totalMemory = memData.total ?? 0;
+        const ramUsage = getRamUsage(memData, settings);
 
-        if (!totalMemory) {
+        if (!ramUsage.total) {
           image = unavailableButton('🧠', 'RAM', 'NO DATA');
         } else {
-          const percent = clamp((usedMemory / totalMemory) * 100, 0, 100);
-          const usedGB = (usedMemory / (1024 ** 3)).toFixed(1);
-          const totalGB = (totalMemory / (1024 ** 3)).toFixed(1);
-          image = generateButtonImage('🧠', 'RAM', `${Math.round(percent)}%`, `${usedGB} / ${totalGB} GB`, percent);
+          const usedGB = (ramUsage.used / (1024 ** 3)).toFixed(1);
+          const totalGB = (ramUsage.total / (1024 ** 3)).toFixed(1);
+          image = generateButtonImage('🧠', 'RAM', `${Math.round(ramUsage.percent)}%`, `${usedGB} / ${totalGB} GB`, ramUsage.percent);
         }
       } else if (action === ACTIONS.vram) {
         const gpuStats = getCachedGpuStats(gpuStatsCache, settings.gpuSelector);

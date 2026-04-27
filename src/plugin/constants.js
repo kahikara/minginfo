@@ -31,6 +31,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   timerStep: 1,
   topMode: 'grouped',
   barMode: 'temp',
+  ramMode: 'available',
   refreshRate: 3,
   pressAction: 'default',
   pressCommand: '',
